@@ -65,49 +65,6 @@ using LinearAlgebra: I
 
 using LinearMaps
 
-function G(dmodel, μ, x)
-
-    model = dmodel.F.model
-    dprocess = dmodel.F.dprocess
-    F = dmodel.F
-
-    N_μ = length(μ)
-    N_x = length(x.data)*length(x.data[1])
-
-
-    P, P_x = Dolo.transition_matrix(model, dprocess, x, F.grid_exo, F.grid_endo; exo=nothing, diff=true) 
-
-    r_μ = P'*μ[:]
-
-    r_mu = LinearMap(d_μ -> P'd_μ, N_μ)
-
-    function fun_x(dx)
-        n_x = length(F.x0.data[1])
-        d_x = MSM(copy(reinterpret(SVector{n_x, Float64}, dx)), F.x0.sizes)
-        P_dx = [(P_x[i,j]'*d_x.data[i])  for i=1:size(P,1), j=1:size(P,2)]
-        return P_dx'*μ[:]
-    end
-
-    r_x = LinearMap(
-        fun_x,
-        N_μ,
-        N_x
-    )
-
-    return r_μ, r_mu, r_x
-
-end
-
-function G(dmodel, μ::AbstractVector{Float64}, x::AbstractVector{Float64})
-
-    F = dmodel.F
-    N = length(dmodel.F.x0)
-    n_x = length(dmodel.F.x0.data[1])
-    xx = MSM(copy(reinterpret(SVector{n_x, Float64}, x)), F.x0.sizes)
-
-    R, A, B = G(dmodel, μ, xx)
-    return R, A, B
-end
 
 using LinearAlgebra: I
 
@@ -173,8 +130,6 @@ function Residual(dmodel, u::Unknown)
           r_A_mu                 zeros(n_y, n_p)       r_A_x               r_A_y          # y
         ]
     
-    return u, J
-
     return u, J
 
 end
