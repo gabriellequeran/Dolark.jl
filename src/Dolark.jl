@@ -179,19 +179,6 @@ module Dolark
         y
     end
 
-    struct SJJac
-        r_μ
-        r_x
-        J
-        L
-        F_p
-        r_p_y
-        r_p_z
-        r_A_mu
-        r_A_x
-        r_A_y
-        E
-    end
 
     using Dolang: _get_oorders
 

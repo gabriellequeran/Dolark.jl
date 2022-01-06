@@ -2,6 +2,8 @@ import Dolark
 import Dolo
 using StaticArrays
 
+# We need YAML.jl from the master branch
+
 hmodel = Dolark.HModel("models/ayiagari.yaml")
 
 y0, z0, p = hmodel.calibration[:aggregate, :exogenous, :parameters]
@@ -24,15 +26,14 @@ tab = Dolo.tabulate(hmodel.agent, sol_agent.dr, :a)
 μ = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
 # μ = μ[:]
 
-μ = μ*0 .+ 1.0
 
 using StaticArrays
 
 
-
 dmodel = Dolark.discretize(hmodel, sol_agent)
 
-x = dmodel.F.x0
+# x = dmodel.F.x0
+x = xx0
 y = SVector(y0...)
 z = SVector(z0...)
 p = Dolark.projection(hmodel, y,z,SVector(hmodel.calibration[:parameters]...))
@@ -57,14 +58,12 @@ J, N_x = Dolark.Residual(dmodel, u);
 
 using Plots
 
-res, J = Dolark.Residual(dmodel, u);
-
-
+res, J, X = Dolark.Residual(dmodel, u);
 
 u_ = Dolark.flatten(u)
 J(u_)
 
-
+r_ = Dolark.flatten(res)
 
 M0 = convert(Matrix, J)
 
@@ -72,20 +71,60 @@ using FiniteDiff
 M1 = FiniteDiff.finite_difference_jacobian(u->Dolark.Residual(dmodel, u; diff=false), u_)
 
 
-D = abs.(M0 - M1) .>= 1e-5
+D = abs.(M0 - M1) .>= 1e-6
 
+spy(D)
+
+# M0[1,1:90] .= 1.0
+# u_[1] = 0
+
+X*u_
+
+using IterativeSolvers
+function power_method(X)
+    u0 = rand(603)
+    λ = maximum(abs, u0)
+    u0 = u0 / λ
+    for i =1:1000
+        u1 = X*u0
+        λ = maximum(abs, u1)
+        u0 = u1/λ
+    end
+    return λ
+end
+
+
+pow(X)
+M = convert(Matrix, X)
+using LinearAlgebra
+evs = eigvals(M)
+
+evs = abs.(evs)
+
+sol = M0 \ r_
+
+sol1 = M1 \ r_
+
+using Plots
 
 spy(D)
 
 
+Dolark.proto_solve_steady_state(dmodel, u)
+
+
 using IterativeSolvers
-import Dolark: compute_matrix
+
+sol_g = gmres(J, r_, abstol=1e-10)
+
+J * sol_g - r_
+
 
 @time gmres(jj,r0)
 
-@time δ = gmres(jj,r0; verbose=true, restart=500)
+@time δ = gmres(J,r_; verbose=true, restart=500)
 
-jj*δ - r0
+J*δ - r_
 
 using Plots
 M = convert(Matrix, J)
@@ -116,5 +155,57 @@ jj*Δ - r0
 @time Dolark.proto_solve_steady_state(dmodel, u);
 
 
-new = proto_solve_steady_state(dmodel, u);
+@time new = Dolark.proto_solve_steady_state(dmodel, u);
 
+
+
+
+
+
+
+
+
+
+hmodel = Dolark.HModel("models/ayiagari.yaml")
+
+
+hmodel.agent.domain
+
+# sol = Dolo.improved_time_iteration(hmodel.agent)
+# hmodel.agent.domain
+
+Dolo.set_calibration!(hmodel.agent; r=0.001, w=3)
+
+dmodel = Dolark.discretize(hmodel, sol)
+hmodel.agent.domain
+
+sol = Dolo.improved_time_iteration(dmodel.hmodel.agent)
+
+using StaticArrays
+
+function fun(m, y, sol0)
+    agent = m.hmodel.agent
+
+    y_ = SVector(y...)
+    z_ = m.hmodel.calibration[:exogenous]
+    p_ = m.hmodel.calibration[:parameters]
+    # Dolo.set_calibration!(m.hmodel.agent; r=r, w=w)
+    p = Dolark.projection(m.hmodel, y_, z_, p_)
+    r,w = p
+    # Dolo.set_calibration!(m.hmodel.agent; r=r, w=w)
+    Dolo.set_calibration!(m.hmodel.agent; r=r, w=w)
+
+    # soll = Dolo.improved_time_iteration(agent;dr0= sol0.dr, verbose=false)
+    soll = Dolo.improved_time_iteration(agent; verbose=false)
+    μ = Dolo.ergodic_distribution(agent, soll)
+    x = Dolo.MSM([soll.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
+    res = Dolark.𝒜(m, μ, x, y_, z_)
+    return res
+
+end
+
+xvec = range(40, 65;length= 100)
+yvec = [fun(dmodel, [k], sol_agent) for k in xvec ]
+
+using Plots
+plot(xvec, yvec)

@@ -25,7 +25,7 @@ calibration:
     a_max: 300.
     a: 1
     i: a
-    K: 41.
+    K: 50.
     alpha: 0.36
     A: 1
     N: 1
@@ -47,7 +47,7 @@ exogenous:
 options:
     discretization:
         endo:
-            n: 30
+            n: 100
 
 ---
 
@@ -63,7 +63,7 @@ calibration:
     alpha: 0.36
     delta: 0.025
     N: 1.0
-    K: 40
+    K: 50
     z: 0
     ρ: 0.95
     σ: 0.025
