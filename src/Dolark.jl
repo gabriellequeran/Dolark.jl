@@ -14,7 +14,7 @@ module Dolark
         cons = YAML.Constructor()
         YAML.add_multi_constructor!((c,s,m)->m, cons, "tag:yaml.org")
         YAML.add_multi_constructor!((c,s,m)->m, cons, "!")
-        data = YAML.load_all_file(txt, cons)
+        data = YAML.load_all(txt, cons)
         agent, model = data
         return (;agent, model)
     end
@@ -125,7 +125,9 @@ module Dolark
 
     function HModel(filename::AbstractString)
         
-        source = get_hmodel_source(filename)
+        txt = open(f->read(f, String), filename)
+
+        source = get_hmodel_source(txt)
         symbols = get_symbols(source.model)
         calibration = Dolo.get_calibration(source.model)
         exogenous = Dolo.get_exogenous(source.model, symbols.exogenous, calibration.flat)

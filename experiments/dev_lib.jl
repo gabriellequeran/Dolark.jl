@@ -1,3 +1,5 @@
+a = 43
+
 import Dolark
 import Dolo
 using StaticArrays
@@ -118,3 +120,23 @@ jj*Δ - r0
 
 new = proto_solve_steady_state(dmodel, u);
 
+
+
+
+
+
+    # extracts annotated yaml structure from model file
+    # the model file is supposed to contain two documents
+    # - a valid dolo model (a.k.a. agent)
+    # - a description of aggregate model
+import YAML
+
+txt = open(f->read(f, String), "models/ayiagari.yaml")
+fname = "models/ayiagari.yaml"
+cons = YAML.Constructor()
+YAML.add_multi_constructor!((c,s,m)->m, cons, "tag:yaml.org")
+YAML.add_multi_constructor!((c,s,m)->m, cons, "!")
+data = YAML.load_all(txt, cons)
+# data = YAML.load_all_file(fname, cons)
+
+agent, model = data
