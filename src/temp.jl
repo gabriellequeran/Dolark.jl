@@ -4,6 +4,19 @@ function ℱ(dmodel, μ0, x0, y0, z0)
 end
 using StaticArrays
 
+"""
+Equalizes offer and demand
+# Arguments
+* `dmodel::`:
+* `μ0`: 
+* `x0`:
+* `y0`:
+* `z0`:
+# Optional Argument
+* `diff::boolean`: Indicates whether we want to compute differentials
+# Returns
+* `A`: 
+"""
 function 𝒜(dmodel, μ0, x0, y0::SVector{d, Float64}, z0; diff=false) where d
 
     N = length(μ0)
