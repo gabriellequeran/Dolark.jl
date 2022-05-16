@@ -1,4 +1,4 @@
-a = 43
+
 
 import Dolark
 import Dolo
@@ -23,7 +23,9 @@ sol_agent = Dolo.improved_time_iteration(hmodel.agent)
 
 xx0 = Dolo.MSM([sol_agent.dr(i, sol_agent.dr.grid_endo.nodes) for i=1:Dolo.n_nodes(sol_agent.dr.grid_exo)])
 
-tab = Dolo.tabulate(hmodel.agent, sol_agent.dr, :a)
+tab0 = Dolo.tabulate(hmodel.agent, sol_agent.dr, :a)
+
+plot(tab0[:a], tab0[:c])
 
 μ = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
 # μ = μ[:]
@@ -41,191 +43,126 @@ z = SVector(z0...)
 p = Dolark.projection(hmodel, y,z,SVector(hmodel.calibration[:parameters]...))
 
 
-@time Dolark.𝒜(dmodel, μ, dmodel.F.x0, y, z)
+u = Dolark.Unknown(μ, p, x, y)
 
-
-
-u = Dolark.Unknown(μ, p, xx0, y)
 
 
 
 using LinearAlgebra: I
 using LinearMaps
 
-
-J, N_x = Dolark.Residual(dmodel, u);
-
-
-
-
 using Plots
 
-res, J, X = Dolark.Residual(dmodel, u);
+
+res, J = Dolark.Residual(dmodel, u);
 
 u_ = Dolark.flatten(u)
-J(u_)
+@time J*u_
 
 r_ = Dolark.flatten(res)
 
-M0 = convert(Matrix, J)
+
+# Check that jacobian is correct
+
+@time M0 = convert(Matrix, J)
 
 using FiniteDiff
-M1 = FiniteDiff.finite_difference_jacobian(u->Dolark.Residual(dmodel, u; diff=false), u_)
+M1 = FiniteDiff.finite_difference_jacobian(u->Dolark.Residual(dmodel, u; diff=false), u_) # ; relstep=1e-10)
+M1_ = jacobian(forward_fdm(5, 1), u->Dolark.Residual(dmodel, u; diff=false), u_)[1]  # more precise
 
 
-D = abs.(M0 - M1) .>= 1e-6
+DD = abs.(M0 - M1_)
+D = (DD .>= 1e-8)
+
+D[1,1]=1
+D[end,end]=1
 
 spy(D)
+
+# There are non zero values for F_p, i.e. DD[303:602,301:302]
 
 # M0[1,1:90] .= 1.0
 # u_[1] = 0
 
-X*u_
 
-using IterativeSolvers
-function power_method(X)
-    u0 = rand(603)
-    λ = maximum(abs, u0)
-    u0 = u0 / λ
-    for i =1:1000
-        u1 = X*u0
-        λ = maximum(abs, u1)
-        u0 = u1/λ
-    end
-    return λ
-end
+k1 = xx0
+k2 = xx0
+kp = p
 
+# dmodel.F(k1, k2, p, p)
 
-pow(X)
-M = convert(Matrix, X)
-using LinearAlgebra
-evs = eigvals(M)
+R =  dmodel.F(k1, k2)
+N_x = length(k1.data)*length(k1.data[1])
+N_p = length(p)
 
-evs = abs.(evs)
-
-sol = M0 \ r_
-
-sol1 = M1 \ r_
-
-using Plots
-
-spy(D)
+L_A = Dolo.df_A(dmodel.F, k1, k2)
+L_B = Dolo.df_B(dmodel.F, k1, k2)
+L_p1, L_p2 = Dolo.df_e(dmodel.F, xx0, xx0, p,p)
+J_A = LinearMaps.LinearMap(u->L_A*u, N_x, N_x)
+J_B = LinearMaps.LinearMap(u->L_B*u, N_x, N_x)
+J_p1 = LinearMaps.LinearMap(u->L_p1*u, N_x, N_p)
+J_p2 = LinearMaps.LinearMap(u->L_p2*u, N_x, N_p)
 
 
-Dolark.proto_solve_steady_state(dmodel, u)
+import LinearMaps
+M_A = convert(Matrix,(J_A))
+M_B = convert(Matrix,(J_B))
+M_p1 = convert(Matrix,(J_p1))
+M_p2 = convert(Matrix,(J_p2))
 
 
-using IterativeSolvers
-
-sol_g = gmres(J, r_, abstol=1e-10)
-
-J * sol_g - r_
+ff = u->flatten(dmodel.F(unflatten(u, k1), k2))
+M1 = FiniteDiff.finite_difference_jacobian(ff, flatten(k1); absstep=1e-8)
+M1_ = jacobian(central_fdm(5, 1), ff, flatten(k1))[1] # this is more precise
 
 
-@time gmres(jj,r0)
-
-@time δ = gmres(J,r_; verbose=true, restart=500)
-
-J*δ - r_
-
-using Plots
-M = convert(Matrix, J)
-
-spy(abs.(M).>=1e-6)
+ff = u->flatten(dmodel.F(k1, unflatten(u, k2)))
+M2 = FiniteDiff.finite_difference_jacobian(ff, flatten(k2)) # ; relstep=1e-10)
+M2_ = jacobian(central_fdm(5, 1), ff, flatten(k2))[1]
 
 
-function hand_solve(jj,v)
-    M = compute_matrix(jj)
-    M\v
-end
+ff = u->flatten(dmodel.F(k1, k2; exo=(u,p)))
+Mp1 = FiniteDiff.finite_difference_jacobian(ff, p) # ; relstep=1e-10)
+Mp1_ = jacobian(forward_fdm(5, 1), ff, p)[1]
+
+ff = u->flatten(dmodel.F(k1, k2; exo=(p,u)))
+Mp2 = FiniteDiff.finite_difference_jacobian(ff, p) # ; relstep=1e-10)
+Mp2_ = jacobian(central_fdm(5, 1), ff, p)[1]
+
+
+using FiniteDifferences
+
+
+maximum(abs,M_A - M1_)   # 1e-7
+maximum(abs,M_B - M2_)  ## very small
+maximum(abs,M_p1 - Mp1)  # 1e-6
+maximum(abs,M_p2 - Mp2)  # 1e-6
+# there is probably something wrong in the chain derivatives inside Euler (CHECK)
+
+
+# try to solve the system
+
+@time us = Dolark.proto_solve_steady_state(dmodel, u; numdiff=true, use_blas=true, maxit=5);   # this "seems" to work (it is slow)
+
+# check the solution
+dr = deepcopy(dmodel.F.dr.dr)
+Dolo.set_values!(dr, us.x)
+
+tab = Dolo.tabulate(hmodel.agent, dr, :a)
+
+
+# plot!(pl, tab[:a], tab[:i])
+# plot!(pl, tab[:a], tab[:a])
+pl = plot(tab[:a], tab[:c])
+plot!(pl, tab0[:a], tab0[:c]) # it looks reasonable
 
 
 
-@time δ = gmres(jj,r0;abstol=1e-8, verbose=true, restart=100)
-
-Δ = hand_solve(jj, r0)
-@time hand_solve(jj, r0)
-
-maximum(abs, jj*δ - r0)
-
-jj*Δ - r0
-
-
-
-
-# TODO: check that F_B(x,x) is indeed correct
-@time Dolark.proto_solve_steady_state(dmodel, u);
+### now we want to use fast jacobian calculation
+sol = Dolark.proto_solve_steady_state(dmodel, u; numdiff=false, use_blas=true, maxit=5) #this doesn't work so well
 
 
 @time new = Dolark.proto_solve_steady_state(dmodel, u);
 
 
 
-
-
-
-
-<<<<<<< HEAD
-    # extracts annotated yaml structure from model file
-    # the model file is supposed to contain two documents
-    # - a valid dolo model (a.k.a. agent)
-    # - a description of aggregate model
-import YAML
-
-txt = open(f->read(f, String), "models/ayiagari.yaml")
-fname = "models/ayiagari.yaml"
-cons = YAML.Constructor()
-YAML.add_multi_constructor!((c,s,m)->m, cons, "tag:yaml.org")
-YAML.add_multi_constructor!((c,s,m)->m, cons, "!")
-data = YAML.load_all(txt, cons)
-# data = YAML.load_all_file(fname, cons)
-
-agent, model = data
-=======
-
-
-
-hmodel = Dolark.HModel("models/ayiagari.yaml")
-
-
-hmodel.agent.domain
-
-# sol = Dolo.improved_time_iteration(hmodel.agent)
-# hmodel.agent.domain
-
-Dolo.set_calibration!(hmodel.agent; r=0.001, w=3)
-
-dmodel = Dolark.discretize(hmodel, sol)
-hmodel.agent.domain
-
-sol = Dolo.improved_time_iteration(dmodel.hmodel.agent)
-
-using StaticArrays
-
-function fun(m, y, sol0)
-    agent = m.hmodel.agent
-
-    y_ = SVector(y...)
-    z_ = m.hmodel.calibration[:exogenous]
-    p_ = m.hmodel.calibration[:parameters]
-    # Dolo.set_calibration!(m.hmodel.agent; r=r, w=w)
-    p = Dolark.projection(m.hmodel, y_, z_, p_)
-    r,w = p
-    # Dolo.set_calibration!(m.hmodel.agent; r=r, w=w)
-    Dolo.set_calibration!(m.hmodel.agent; r=r, w=w)
-
-    # soll = Dolo.improved_time_iteration(agent;dr0= sol0.dr, verbose=false)
-    soll = Dolo.improved_time_iteration(agent; verbose=false)
-    μ = Dolo.ergodic_distribution(agent, soll)
-    x = Dolo.MSM([soll.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
-    res = Dolark.𝒜(m, μ, x, y_, z_)
-    return res
-
-end
-
-xvec = range(40, 65;length= 100)
-yvec = [fun(dmodel, [k], sol_agent) for k in xvec ]
-
-using Plots
-plot(xvec, yvec)
->>>>>>> 705e7c8e470658ed7016e2edf70156dd51492da7

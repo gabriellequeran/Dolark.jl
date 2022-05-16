@@ -1,3 +1,4 @@
+__precompile__(false)
 module Dolark
 
     import YAML
@@ -177,7 +178,7 @@ module Dolark
     struct Unknown
         μ
         p
-        x
+        x::Dolo.MSM
         y
     end
 

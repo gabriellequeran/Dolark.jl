@@ -25,7 +25,7 @@ calibration:
     a_max: 300.
     a: 1
     i: a
-    K: 50.
+    K: 49.
     alpha: 0.36
     A: 1
     N: 1

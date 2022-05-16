@@ -31,13 +31,17 @@ function 𝒜(dmodel, μ0, x0, y0::SVector{d, Float64}, z0; diff=false) where d
     parms = SVector(dmodel.hmodel.calibration[:parameters]...)
 
     res = Dolark.equilibrium(dmodel.hmodel, s0, x0.data, yvec, zvec, yvec, zvec, parms)
+
+    @assert length(res[1])==1 # only one aggregate condition for now.
+
     res = reinterpret(Float64, res)
 
 
 
     if diff==false
 
-        return sum(μ .* res)
+        res = sum(μ .* res) # this is 1d only
+        return [res]
     
     else
 
@@ -69,6 +73,7 @@ function 𝒜(dmodel, μ0, x0, y0::SVector{d, Float64}, z0; diff=false) where d
         R_A_y = LinearMaps.LinearMap(A_y, n_y, n_y)
         R_A_z = LinearMaps.LinearMap(A_z, n_y, n_z)
 
+        A = [A] # this is 1d only
         return A, R_A_mu, R_A_x, R_A_y, R_A_z
 
     end
@@ -120,9 +125,10 @@ function Residual(dmodel, u::Unknown)
     F_p1, F_p2 = Dolo.df_e(F, x, x, p,p)
     F_p = F_p1 + F_p2 # that one looks wrong
 
-    Dolo.prediv!(L, JJ)
-    r_F = JJ\r_F
-    F_p = JJ\F_p
+    # no preconditioning
+    # Dolo.prediv!(L, JJ)
+    # r_F = JJ\r_F
+    # F_p = JJ\F_p
 
     Ft_x = LinearMaps.LinearMap(z->JJ*z, N_x, N_x)
     # Ft_x = LinearMaps.LinearMap(z->z, N_x, N_x)
@@ -147,13 +153,13 @@ function Residual(dmodel, u::Unknown)
         ]
     
 
-    Y = [ -G_mu                 zeros(N_μ, n_p)        -G_x               zeros(N_μ, n_y)         ; # μ
-        zeros(n_p, N_μ)           zeros(n_p, n_p)                   zeros(n_p, N_x)     -R_p_y        # p;
-        zeros(N_x, N_μ)        Ft_p                  Ft_xx          zeros(N_x, n_y)         ; # x
-        r_A_mu                 zeros(n_y, n_p)       r_A_x               r_A_y          # y
-      ]
+    # Y = [ -G_mu                 zeros(N_μ, n_p)        -G_x               zeros(N_μ, n_y)         ; # μ
+    #     zeros(n_p, N_μ)           zeros(n_p, n_p)                   zeros(n_p, N_x)     -R_p_y        # p;
+    #     zeros(N_x, N_μ)        Ft_p                  Ft_xx          zeros(N_x, n_y)         ; # x
+    #     r_A_mu                 zeros(n_y, n_p)       r_A_x               r_A_y          # y
+    #   ]
 
-    return u, J, Y
+    return u, J
 
 end
 
@@ -201,23 +207,23 @@ function flatten(u::Dolark.Unknown)
     )
 end
 
-# function unflatten(u::Dolark.SJJac, v::AbstractVector)
+function unflatten(u::Dolark.Unknown, v::AbstractVector)
 
-#     n1 = length(u.E.μ)
-#     μ = reshape(v[1:n1], size(u.E.μ)...)
-#     n2 = length(u.F_p.data[1])
-#     p = SVector(v[n1+1:n1+n2]...)
-#     n_x = size(u.F_p.data[1],1)
-#     n3 = length(u.F_p.data)*n_x
-#     data = copy( reinterpret(SVector{n_x, Float64}, v[n1+n2+1:n1+n2+n3]))
-#     x = MSM(data, u.F_p.sizes)
-#     y = SVector(v[n1+n2+n3+1:end]...)
+    n1 = length(u.μ)
+    μ = reshape(v[1:n1], size(u.μ)...)
+    n2 = length(u.p)
+    p = SVector(v[n1+1:n1+n2]...)
+    n_x = size(u.x.data[1],1)
+    n3 = length(u.x.data)*n_x
+    data = copy( reinterpret(SVector{n_x, Float64}, v[n1+n2+1:n1+n2+n3]))
+    x = MSM(data, u.x.sizes)
+    y = SVector(v[n1+n2+n3+1:end]...)
     
-#     u = Dolark.Unknown(μ, p, x, y)
+    u = Dolark.Unknown(μ, p, x, y)
 
-#     return u
+    return u
 
-# end
+end
 
 
 
@@ -241,13 +247,15 @@ function +(a::Dolark.Unknown, b::Dolark.Unknown)
 end
 
 using FiniteDiff
-function proto_solve_steady_state(dmodel, u0)
+
+function proto_solve_steady_state(dmodel, u0; numdiff=true, use_blas=true, maxit=10)
 
     backsteps = [2.0^(-i) for i=0:10]
 
+    local guess
     u0_ = flatten(u0)
 
-    for i=1:10
+    for i=1:maxit
 
         println(u0_[end])
         r_, J = Residual(dmodel, u0_; diff=true)
@@ -255,15 +263,16 @@ function proto_solve_steady_state(dmodel, u0)
         ε = maximum(abs, r_)
 
         println("r: $(ε)")
-        M = convert(Matrix, J)
-
-        # r_ = Residual(dmodel, u0_)
-        # M = FiniteDiff.finite_difference_jacobian(o->Residual(dmodel, o), u0_)
-        # ε = maximum(abs, r_)
-        # println("r: $(ε)")
+        if numdiff
+            J = FiniteDiff.finite_difference_jacobian(u->Dolark.Residual(dmodel, u; diff=false), u0_) # ; 
+        end
         
-        # δ_ = -M \ r_
-        δ_ = -gmres(J,r_)
+        if use_blas
+            J = convert(Matrix, J)
+            δ_ = -J \ r_
+        else
+            δ_ = -gmres(J,r_)
+        end
 
         for λ in backsteps
             guess = u0_ + δ_*λ  # (J,λ*δ_)
@@ -287,6 +296,7 @@ function proto_solve_steady_state(dmodel, u0)
 
     end
 
+    return unflatten(u0, guess)
 end
 
 
