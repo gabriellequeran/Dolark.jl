@@ -2,42 +2,55 @@ using StaticArrays
 import Dolark
 import Dolo
 
-function set_calibration_dmodel!(dmodel::Dolark.DModel, key::Symbol, value)
-    Dolo.set_calibration!(dmodel.hmodel.agent, key, value)
-end
 
-
-function solve_agent_pb(hmodel; n_it=30, toll=1e-8)
+function solve_agent_pb(hmodel; n_it=100, toll=1e-8)
 
     it = 0
 
     # initialization
-
-    y0, z0, p0 = hmodel.calibration[:aggregate, :exogenous, :parameters]
+    y0, z0, parm = hmodel.calibration[:aggregate, :exogenous, :parameters]
     y = SVector(y0...)
     z = SVector(z0...)
-    p = Dolark.projection(hmodel, y, z, p0) # warning: p and p0 are not the same kind of arguments. p regroups r and w whereas p0 is a list of constant parameters
+    p = Dolark.projection(hmodel, y, z, parm) 
     r, w = p
 
     Dolo.set_calibration!(hmodel.agent; r=r, w=w)
+    print(" initialization: y=",y," and ","r=",hmodel.agent.calibration.flat[:r]," and w=",hmodel.agent.calibration.flat[:w],";    ")
     sol_agent = Dolo.improved_time_iteration(hmodel.agent)
     μ = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
     dmodel = Dolark.discretize(hmodel, sol_agent)
 
-    x = dmodel.F.x0
+    x = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)]) #dmodel.F.x0
 
     # computation of A = K_demand - K_offer, and of its derivatives
     A, R_A_mu, R_A_x, R_A_y, R_A_z = Dolark.𝒜(dmodel, μ, x, y, z; diff=true)
 
     while it < n_it && abs(A[1]) > toll 
         y = y - convert(Matrix, R_A_y) \ A # Newton's method to update y. 
-        p = Dolark.projection(dmodel.hmodel, y, z, p0)
+
+        p = Dolark.projection(dmodel.hmodel, y, z, parm)
         r, w = p
 
-        print("abs(A[1])=",abs(A[1])," and y=",y," and ","r=",r," and w=",w,";    ")
+        print("A=",A," and y=",y," and ","r=",r," and w=",w,";    ")
+        # y_new = y - convert(Matrix, R_A_y) \ A # Newton's method to update y. 
 
-        Dolo.set_calibration!(dmodel.hmodel.agent; r=r, w=w) #updating the agent's model
-        sol_agent = Dolo.improved_time_iteration(dmodel.hmodel.agent; verbose=false)
+        # p = Dolark.projection(dmodel.hmodel, y_new, z, parm)
+        # r, w = p
+
+        # print("A=",A," and y=",y_new," and ","r=",r," and w=",w,";    ")
+
+        # if isnan(r)
+        #     y = (y+99*y_new) ./100
+        #     p = Dolark.projection(dmodel.hmodel, y, z, parm)
+        #     r, w = p
+        #     print("yes. Now: y=",y," and ","r=",r," and w=",w,";    ")
+        # else
+        #     y = y_new
+        # end
+
+        Dolo.set_calibration!(hmodel.agent; r=r, w=w) #updating the agent's model
+        sol_agent = Dolo.improved_time_iteration(hmodel.agent; verbose=false)
+        dmodel = Dolark.discretize(hmodel, sol_agent)
         μ = Dolo.ergodic_distribution(dmodel.hmodel.agent, sol_agent)
         x = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
 
@@ -51,39 +64,3 @@ end
 
 hmodel = Dolark.HModel("models/ayiagari.yaml")
 solve_agent_pb(hmodel) #At least, it works the third time.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# sol_agent = Dolo.improved_time_iteration(hmodel.agent)
-# μ = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
-# dmodel = Dolark.discretize(hmodel, sol_agent)
-
-# y0, z0, p0 = hmodel.calibration[:aggregate, :exogenous, :parameters]
-# y = SVector(y0...)
-# z = SVector(z0...)
-
-# A, R_A_mu, R_A_x, R_A_y, R_A_z = Dolark.𝒜(dmodel, μ, dmodel.F.x0, y, z; diff=true)
-
-# set_calibration!(hmodel, :r, 0.5)
-
-# dmodel.F.x0
-
-# y0
-
-# z0
-
-# Dolark.projection(dmodel.hmodel, y, z, p0)
-
-# p0
-# p
