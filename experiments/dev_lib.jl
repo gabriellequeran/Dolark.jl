@@ -4,6 +4,8 @@ import Dolark
 import Dolo
 using StaticArrays
 
+using Plots
+
 # We need YAML.jl from the master branch
 
 hmodel = Dolark.HModel("models/ayiagari.yaml")
@@ -51,7 +53,6 @@ u = Dolark.Unknown(μ, p, x, y)
 using LinearAlgebra: I
 using LinearMaps
 
-using Plots
 
 
 res, J = Dolark.Residual(dmodel, u);
@@ -64,6 +65,8 @@ r_ = Dolark.flatten(res)
 
 # Check that jacobian is correct
 
+using FiniteDifferences
+
 @time M0 = convert(Matrix, J)
 
 using FiniteDiff
@@ -72,6 +75,7 @@ M1_ = jacobian(forward_fdm(5, 1), u->Dolark.Residual(dmodel, u; diff=false), u_)
 
 
 DD = abs.(M0 - M1_)
+
 D = (DD .>= 1e-8)
 
 D[1,1]=1
@@ -142,7 +146,9 @@ maximum(abs,M_p2 - Mp2)  # 1e-6
 
 # try to solve the system
 
-@time us = Dolark.proto_solve_steady_state(dmodel, u; numdiff=true, use_blas=true, maxit=5);   # this "seems" to work (it is slow)
+@time us = Dolark.proto_solve_steady_state(dmodel, u; numdiff=false, use_blas=true, maxit=8);   # this to work (it is slow)
+
+
 
 # check the solution
 dr = deepcopy(dmodel.F.dr.dr)
