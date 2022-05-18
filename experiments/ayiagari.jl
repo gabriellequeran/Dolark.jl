@@ -7,7 +7,7 @@ function set_calibration_dmodel!(dmodel::Dolark.DModel, key::Symbol, value)
 end
 
 
-function solve_agent_pb(hmodel; n_it=30, toll=1e-10)
+function solve_agent_pb(hmodel; n_it=30, toll=1e-8)
 
     it = 0
 
@@ -29,15 +29,18 @@ function solve_agent_pb(hmodel; n_it=30, toll=1e-10)
     # computation of A = K_demand - K_offer, and of its derivatives
     A, R_A_mu, R_A_x, R_A_y, R_A_z = Dolark.𝒜(dmodel, μ, x, y, z; diff=true)
 
-    while it < n_it && A[1] > toll 
+    while it < n_it && abs(A[1]) > toll 
         y = y - convert(Matrix, R_A_y) \ A # Newton's method to update y. 
         p = Dolark.projection(dmodel.hmodel, y, z, p0)
         r, w = p
-        print("y=",y," and ","r=",r," and w=",w,";    ")
-        Dolo.set_calibration!(dmodel.hmodel.agent; r=r, w=w)
+
+        print("abs(A[1])=",abs(A[1])," and y=",y," and ","r=",r," and w=",w,";    ")
+
+        Dolo.set_calibration!(dmodel.hmodel.agent; r=r, w=w) #updating the agent's model
         sol_agent = Dolo.improved_time_iteration(dmodel.hmodel.agent; verbose=false)
         μ = Dolo.ergodic_distribution(dmodel.hmodel.agent, sol_agent)
         x = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
+
         A, R_A_mu, R_A_x, R_A_y, R_A_z = Dolark.𝒜(dmodel, μ, x, y, z; diff=true)
 
         it += 1
@@ -47,7 +50,7 @@ end
 
 
 hmodel = Dolark.HModel("models/ayiagari.yaml")
-solve_agent_pb(hmodel)
+solve_agent_pb(hmodel) #At least, it works the third time.
 
 
 
