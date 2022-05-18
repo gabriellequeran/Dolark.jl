@@ -40,8 +40,12 @@ function 𝒜(dmodel, μ0, x0, y0::SVector{d, Float64}, z0; diff=false) where d
 
     if diff==false
 
+<<<<<<< HEAD
         res = sum(μ .* res) # this is 1d only
         return [res]
+=======
+        return [sum(μ .* res)]
+>>>>>>> 4976d4fa7e1533a424fbe1647dc615fa49e87fe4
     
     else
 
@@ -73,8 +77,12 @@ function 𝒜(dmodel, μ0, x0, y0::SVector{d, Float64}, z0; diff=false) where d
         R_A_y = LinearMaps.LinearMap(A_y, n_y, n_y)
         R_A_z = LinearMaps.LinearMap(A_z, n_y, n_z)
 
+<<<<<<< HEAD
         A = [A] # this is 1d only
         return A, R_A_mu, R_A_x, R_A_y, R_A_z
+=======
+        return [A], R_A_mu, R_A_x, R_A_y, R_A_z
+>>>>>>> 4976d4fa7e1533a424fbe1647dc615fa49e87fe4
 
     end
 
