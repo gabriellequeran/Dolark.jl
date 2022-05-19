@@ -3,64 +3,123 @@ import Dolark
 import Dolo
 
 
-function solve_agent_pb(hmodel; n_it=100, toll=1e-8)
-
-    it = 0
-
-    # initialization
-    y0, z0, parm = hmodel.calibration[:aggregate, :exogenous, :parameters]
-    y = SVector(y0...)
-    z = SVector(z0...)
-    p = Dolark.projection(hmodel, y, z, parm) 
+function Ξ(y::SVector{1,Float64}, hmodel; z=SVector(0.)) # ~ 0.3s
+    parm = hmodel.calibration[:parameters]
+    p = Dolark.projection(hmodel, y, z, parm)
     r, w = p
 
-    Dolo.set_calibration!(hmodel.agent; r=r, w=w)
-    print(" initialization: y=",y," and ","r=",hmodel.agent.calibration.flat[:r]," and w=",hmodel.agent.calibration.flat[:w],";    ")
-    sol_agent = Dolo.improved_time_iteration(hmodel.agent)
+    Dolo.set_calibration!(hmodel.agent; r=r, w=w) # update the model to account for the correct values of p
+
+    println("r=",r,"; w=",w)
+    #println(hmodel.source)
+    println(hmodel.calibration)
+    println(hmodel.exogenous)
+    println(hmodel.equations)
+    println(hmodel.agent.calibration)
+
+    sol_agent = Dolo.improved_time_iteration(hmodel.agent; verbose=false)
     μ = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
     dmodel = Dolark.discretize(hmodel, sol_agent)
+    x = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
 
-    x = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)]) #dmodel.F.x0
-
-    # computation of A = K_demand - K_offer, and of its derivatives
-    A, R_A_mu, R_A_x, R_A_y, R_A_z = Dolark.𝒜(dmodel, μ, x, y, z; diff=true)
-
-    while it < n_it && abs(A[1]) > toll 
-        y = y - convert(Matrix, R_A_y) \ A # Newton's method to update y. 
-
-        p = Dolark.projection(dmodel.hmodel, y, z, parm)
-        r, w = p
-
-        print("A=",A," and y=",y," and ","r=",r," and w=",w,";    ")
-        # y_new = y - convert(Matrix, R_A_y) \ A # Newton's method to update y. 
-
-        # p = Dolark.projection(dmodel.hmodel, y_new, z, parm)
-        # r, w = p
-
-        # print("A=",A," and y=",y_new," and ","r=",r," and w=",w,";    ")
-
-        # if isnan(r)
-        #     y = (y+99*y_new) ./100
-        #     p = Dolark.projection(dmodel.hmodel, y, z, parm)
-        #     r, w = p
-        #     print("yes. Now: y=",y," and ","r=",r," and w=",w,";    ")
-        # else
-        #     y = y_new
-        # end
-
-        Dolo.set_calibration!(hmodel.agent; r=r, w=w) #updating the agent's model
-        sol_agent = Dolo.improved_time_iteration(hmodel.agent; verbose=false)
-        dmodel = Dolark.discretize(hmodel, sol_agent)
-        μ = Dolo.ergodic_distribution(dmodel.hmodel.agent, sol_agent)
-        x = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
-
-        A, R_A_mu, R_A_x, R_A_y, R_A_z = Dolark.𝒜(dmodel, μ, x, y, z; diff=true)
-
-        it += 1
-    end
-    print("Finally: y=",y," and A=",A, " and it =", it) 
+    # computation of A = K_demand - K_offer
+    return Dolark.𝒜(dmodel, μ, x, y, z; diff=false) 
 end
 
+hmodel = Dolark.HModel("models/ayiagari.yaml")
+Ξ(SVector(50.),hmodel)[1]
+
+function Ξ2(y::SVector{1,Float64}, hmodel; z=SVector(0.)) # Ξ2 applique 2 fois les opérations de Ξ et cherche à comprendre ce qui change
+    parm = hmodel.calibration[:parameters]
+    p = Dolark.projection(hmodel, y, z, parm)
+    r, w = p
+
+    Dolo.set_calibration!(hmodel.agent; r=r, w=w) # update the model to account for the correct values of p
+    sol_agent = Dolo.improved_time_iteration(hmodel.agent; verbose=false)
+    μ = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
+    dmodel = Dolark.discretize(hmodel, sol_agent)
+    x = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
+
+    hmodel1 = hmodel
+    sol_agent1 = sol_agent
+    dmodel1 = dmodel
+    μ1 = μ
+    x1 = x
+
+    parm = hmodel.calibration[:parameters]
+    p = Dolark.projection(hmodel, y, z, parm)
+    r, w = p
+    Dolo.set_calibration!(hmodel.agent; r=r, w=w) # update the model to account for the correct values of p
+    sol_agent2 = Dolo.improved_time_iteration(hmodel.agent; verbose=false)
+    μ2 = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
+    dmodel2 = Dolark.discretize(hmodel, sol_agent)
+    x2 = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
+
+    println(hmodel1==hmodel, sol_agent1==sol_agent2, dmodel1==dmodel2, μ1==μ2, x1==x2)
+    println("A1:",Dolark.𝒜(dmodel1, μ1, x1, y, z; diff=false)," A2:",Dolark.𝒜(dmodel2, μ2, x2, y, z; diff=false))
+end
 
 hmodel = Dolark.HModel("models/ayiagari.yaml")
-solve_agent_pb(hmodel) #At least, it works the third time.
+Ξ2(SVector(50.), hmodel) 
+
+
+
+
+
+
+
+
+
+
+
+function solve_agent_pb(hmodel; n_it=100, toll=1e-3)
+    y0, z0 = hmodel.calibration[:aggregate, :exogenous]
+    y = SVector(y0...)
+    z = SVector(z0...)
+
+    A = Ξ(y, hmodel)
+    it=0
+    println("y=",y," and it=",it," and A=",A,"     ")
+    while it < n_it && maximum(abs.(A)) > toll
+        ∂Ξ_∂y = FiniteDiff.finite_difference_jacobian(Y -> Ξ(Y, hmodel), y) 
+        y = y - ∂Ξ_∂y \  A
+        it += 1
+        println("y=",y," and A not yet calculated =", Ξ(y, hmodel))
+        A = Ξ(y, hmodel)
+        println("y=",y," and it=",it," and A=",A,"     ")
+    end
+    
+end
+
+hmodel = Dolark.HModel("models/ayiagari.yaml")
+solve_agent_pb(hmodel)
+
+
+
+
+
+using Plots
+p1 = plot([k for k in 40:80], [Ξ(SVector(k+0.),hmodel)[1] for k in 40:80], label="Ξ")
+p2 = plot([k for k in 40:80], [FiniteDiff.finite_difference_jacobian(y -> Ξ(y, hmodel), SVector(k+0.))[1] for k in 40:80], label="∂Ξ_∂y")
+plot(p1,p2, layout =(2,1))
+
+
+
+
+
+
+# Looking at proto_solve_steady_state
+y0, z0 = hmodel.calibration[:aggregate, :exogenous]
+y = SVector(y0...)
+z = SVector(z0...)
+parm = hmodel.calibration[:parameters]
+p = Dolark.projection(hmodel, y, z, parm)
+r, w = p
+Dolo.set_calibration!(hmodel.agent; r=r, w=w) # update the model to account for the correct values of p
+sol_agent = Dolo.improved_time_iteration(hmodel.agent)
+μ = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
+dmodel = Dolark.discretize(hmodel, sol_agent)
+x = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
+
+u0 = Dolark.Unknown(μ,p,x,y)
+Dolark.proto_solve_steady_state(dmodel, u0; numdiff=false, use_blas=true, maxit=10, toll=1e-5)
