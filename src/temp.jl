@@ -7,15 +7,20 @@ using StaticArrays
 """
 Equalizes offer and demand
 # Arguments
-* `dmodel::`:
-* `μ0`: 
-* `x0`:
-* `y0`:
-* `z0`:
+* `dmodel::DModel`: discretized model
+* `μ0`: distribution of the states
+* `x0`: vector of controls
+* `y0`: agregate variable
+* `z0`: exogenous variable at the global level
 # Optional Argument
 * `diff::boolean`: Indicates whether we want to compute differentials
 # Returns
-* `A`: 
+* `A::Vector{Float64}`: difference y_demand-y_offer
+# Optionnaly, returns
+* `R_A_μ::LinearMap`: A derived wrt μ
+* `R_A_x::LinearMap`: A derived wrt x
+* `R_A_y::LinearMap`: A derived wrt y
+* `R_A_z::LinearMap`: A derived wrt z
 """
 function 𝒜(dmodel, μ0, x0, y0::SVector{d, Float64}, z0; diff=false) where d
 
@@ -40,12 +45,8 @@ function 𝒜(dmodel, μ0, x0, y0::SVector{d, Float64}, z0; diff=false) where d
 
     if diff==false
 
-<<<<<<< HEAD
         res = sum(μ .* res) # this is 1d only
         return [res]
-=======
-        return [sum(μ .* res)]
->>>>>>> 4976d4fa7e1533a424fbe1647dc615fa49e87fe4
     
     else
 
@@ -77,12 +78,8 @@ function 𝒜(dmodel, μ0, x0, y0::SVector{d, Float64}, z0; diff=false) where d
         R_A_y = LinearMaps.LinearMap(A_y, n_y, n_y)
         R_A_z = LinearMaps.LinearMap(A_z, n_y, n_z)
 
-<<<<<<< HEAD
         A = [A] # this is 1d only
         return A, R_A_mu, R_A_x, R_A_y, R_A_z
-=======
-        return [A], R_A_mu, R_A_x, R_A_y, R_A_z
->>>>>>> 4976d4fa7e1533a424fbe1647dc615fa49e87fe4
 
     end
 
