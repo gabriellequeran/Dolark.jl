@@ -28,7 +28,7 @@ Takes an evaluation of a model's state variables - y -  and the model itself to 
 # Optionnaly, returns
 * `dA::Vector{d,Float64}`: dA caused by dy
 """
-function Ξ(y::SVector{d,Float64}, hmodel; init=true, dr0 = nothing, z=SVector(0.), diff=false, dy = SVector{d,Float64}(zeros(d)), smaxit=1000, tol_ν=1e-10) where d
+function Ξ(y::SVector{d,Float64}, hmodel; init=true, dr0 = nothing, z=SVector(0.), diff=false, smaxit=1000, tol_ν=1e-10) where d
     
     t0 = time()
     parm = hmodel.calibration[:parameters]
@@ -36,81 +36,84 @@ function Ξ(y::SVector{d,Float64}, hmodel; init=true, dr0 = nothing, z=SVector(0
     r, w = p
     p = SVector{2,Float64}(p...)
 
-    println("time projection:",time()-t0) # ~1e-5s
+    # println("time projection:",time()-t0) # ~1e-5s
 
     Dolo.set_calibration!(hmodel.agent; r=r, w=w) # update the model to account for the correct values of p
-    println("time calib:",time()-t0) # ~1e-2s, 1e-3s
+    # println("time calib:",time()-t0) # ~1e-2s, 1e-3s
 
     if init # this disjunction of cases allows to speed up the time iteration algorithm when using the Newton method to find the 0 of Ξ[1]
         sol_agent = Dolo.improved_time_iteration(hmodel.agent; verbose=false)
     else
         sol_agent = Dolo.improved_time_iteration(hmodel.agent; dr0 = dr0, verbose=false) # the second time Ξ is run, we start from dr0 as initial guess to speed up the computation
     end
-    println("time ITI:",time()-t0) # ~1e-2s
+    # println("time ITI:",time()-t0) # ~1e-2s
     if !diff
         μ = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
-        println("time ergodic_distribution:",time()-t0) # ~6e-3s
+        # println("time ergodic_distribution:",time()-t0) # ~6e-3s
         dmodel = Dolark.discretize(hmodel, sol_agent) 
-        println("time discretize:",time()-t0) # ~1e-3s
+        # println("time discretize:",time()-t0) # ~1e-3s
         x = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
     
         # computation of A = K_demand - K_offer
         A = Dolark.𝒜(dmodel, μ, x, y, z; diff=false)
-        println("time A:",time()-t0) # ~3e-4s
+        # println("time A:",time()-t0) # ~3e-4s
         return A, sol_agent.dr
     end
 
     μ = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
-    println("time ergodic_distribution:",time()-t0)
+    # println("time ergodic_distribution:",time()-t0)
     dmodel = Dolark.discretize(hmodel, sol_agent)
-    println("time discretize:",time()-t0)
+    # println("time discretize:",time()-t0)
     x = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
     μ, ∂G_∂μ, ∂G_∂x = dmodel.G(μ,x; diff=true) # here, μ is unchanged since it is already the ergodic distrib.
-    println("time G", time()-t0) # ~4e-2s
+    # println("time G", time()-t0) # ~4e-2s
     # computation of A = K_demand - K_offer and of its derivatives
     A, ∂A_∂μ, ∂A_∂x, ∂A_∂y, ∂A_∂z = Dolark.𝒜(dmodel, μ, x, y, z; diff=true)
-    println("time A:",time()-t0) # ~3e-4s
+    # println("time A:",time()-t0) # ~3e-4s
     # computation of dp induced by dy
-    dp = r_p_y * dy
-    println("time dp:",time()-t0) # 3e-4s
-    # computation of dx induced by dy
-    J = Dolo.df_A(dmodel.F, x, x; exo=(p,p))
-    L = Dolo.df_B(dmodel.F, x, x; exo=(p,p))
-    F_p1, F_p2 = Dolo.df_e(dmodel.F, x, x, p, p)
-    F_p = F_p1 + F_p2
-    Dolo.mult!(L, -1.0) # L : -L
-    Dolo.prediv!(L, J) # L : -J\L 
-    π = - J \ F_p * dp
-    count = 0
-    u = π
-    dx = π
-    for i=1:smaxit
-        count +=1
-        u = L*u
-        dx += u # supposed to be the infinite sum useful to compute an inverse
-        if norm(u)<tol_ν
-            break
+    function dA_(dy)
+        dp = r_p_y * dy
+        # println("time dp:",time()-t0) # 3e-4s
+        # computation of dx induced by dy
+        J = Dolo.df_A(dmodel.F, x, x; exo=(p,p))
+        L = Dolo.df_B(dmodel.F, x, x; exo=(p,p))
+        F_p1, F_p2 = Dolo.df_e(dmodel.F, x, x, p, p)
+        F_p = F_p1 + F_p2
+        Dolo.mult!(L, -1.0) # L : -L
+        Dolo.prediv!(L, J) # L : -J\L 
+        π = - J \ F_p * dp
+        count = 0
+        u = π
+        dx = π
+        for i=1:smaxit
+            count +=1
+            u = L*u
+            dx += u # supposed to be the infinite sum useful to compute an inverse
+            if norm(u)<tol_ν
+                break
+            end
         end
-    end
-    println("time dx:",time()-t0) # ~8e-2s
+        # println("time dx:",time()-t0) # ~8e-2s
 
-    # computation of dμ induced by dy. ∂G/∂p MUST BE ADDED !!!
-    count=0
-    U = ∂G_∂x * dx
-    dμ = ∂G_∂x * dx
-    for j=1:smaxit
-        count +=1
-        U = ∂G_∂μ * U
-        dμ += U # supposed to be the infinite sum useful to compute an inverse
-        if norm(U)<tol_ν
-            break
+        # computation of dμ induced by dy. ∂G/∂p MUST BE ADDED AND THE CONVERGENCE MUST BE CHECKED !!!
+        count=0
+        U = ∂G_∂x * dx
+        dμ = ∂G_∂x * dx
+        for j=1:smaxit
+            count +=1
+            U = ∂G_∂μ * U
+            dμ += U # supposed to be the infinite sum useful to compute an inverse
+            if norm(U)<tol_ν
+                break
+            end
         end
+        # println("time dμ:",time()-t0) # ~5e-3s
+        # computation of dA induced by dy
+        dA = convert(Matrix, ∂A_∂μ) * dμ + convert(Matrix,∂A_∂x) * dx + convert(Matrix,∂A_∂y) * dy 
+        # println("time dA:",time()-t0) # ~2e-3s
+        return(dA)
     end
-    println("time dμ:",time()-t0) # ~5e-3s
-    # computation of dA induced by dy
-    dA = convert(Matrix, ∂A_∂μ) * dμ + convert(Matrix,∂A_∂x) * dx + convert(Matrix,∂A_∂y) * dy 
-    println("time dA:",time()-t0) # ~2e-3s
-    return A, dA, sol_agent.dr
+    return A, dA_, sol_agent.dr
 end
 
 
@@ -121,24 +124,27 @@ function solve_agent_pb(hmodel; n_it=100, toll=1e-3, newton_adjustment_parameter
     z = SVector(z0...)
     N_y = length(y)
 
-    A, dr = Ξ(y, hmodel; z=z)
-
     it=0
-    while it < n_it && maximum(abs.(A)) > toll
 
-        ∂A_∂y = LinearMaps.LinearMap(dy -> Ξ(y, hmodel; init=false, dr0 = dr, z=z, diff=true, dy = dy)[2], N_y, N_y)
+    A, dA_, dr = Ξ(y, hmodel; z=z, diff=true)
+    ∂A_∂y = LinearMaps.LinearMap(dy -> dA_(dy), N_y, N_y)
+
+    while it < n_it && maximum(abs.(A)) > toll
         ∂A_∂y = convert(Matrix, ∂A_∂y)
         y = y - ∂A_∂y \  A * newton_adjustment_parameter
+        
+        A, dA_, dr = Ξ(y, hmodel; init=false, dr0 = dr, z=z, diff=true)
+        ∂A_∂y = LinearMaps.LinearMap(dy -> dA_(dy), N_y, N_y)
+
         it += 1
-        A, dr = Ξ(y, hmodel; init=false, dr0 = dr, z=z)
     end
+
     print("y=",y, " and it=",it)
 end
 
 hmodel = Dolark.HModel("models/ayiagari.yaml")
 
 @time solve_agent_pb(hmodel) #0.6s
-
 
 
 
