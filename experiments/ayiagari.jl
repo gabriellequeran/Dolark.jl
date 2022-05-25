@@ -6,6 +6,7 @@ using LinearMaps
 using LinearAlgebra
 using Statistics
 using Krylov
+using LinearMapsAA
 
 
 """
@@ -28,71 +29,72 @@ Takes an evaluation of a model's state variables - y -  and the model itself to 
 # Optionnaly, returns
 * `dA::Vector{d,Float64}`: dA caused by dy
 """
-function Ξ(y::SVector{d,Float64}, hmodel; init=true, dr0 = nothing, z=SVector(0.), diff=false, smaxit=1000, tol_ν=1e-10) where d
+function Ξ(y::SVector{d,Float64}, hmodel; it=0, dr0 = nothing, z=SVector(0.), diff=false, smaxit=1000, tol_ν=1e-10, log=nothing, log2 = nothing, t_∂A_∂y = 0.) where d
     
     parm = hmodel.calibration[:parameters]
     p, r_p_y = Dolark.projection(hmodel, Val{(0,1)}, y, z, parm)
     r, w = p
     p = SVector{2,Float64}(p...)
 
-    # println("time projection:",time()-t0) # ~1e-5s
-
     t0 = time()
     Dolo.set_calibration!(hmodel.agent; r=r, w=w) # update the model to account for the correct values of p
-    println("time calib:",time()-t0) # ~1e-2s, 1e-3s
+    t_calib = time()-t0 # ~1e-2s, 1e-3s
 
     t0 = time()
-    if init # this disjunction of cases allows to speed up the time iteration algorithm when using the Newton method to find the 0 of Ξ[1]
+    if it==0 # this disjunction of cases allows to speed up the time iteration algorithm when using the Newton method to find the 0 of Ξ[1]
         sol_agent = Dolo.improved_time_iteration(hmodel.agent; verbose=false)
     else
         sol_agent = Dolo.improved_time_iteration(hmodel.agent; dr0 = dr0, verbose=false) # the second time Ξ is run, we start from dr0 as initial guess to speed up the computation
     end
-    println("time ITI:",time()-t0) # ~1e-2s
+    t_ITI = time()-t0 # ~1e-2s
 
     if !diff
         t0 = time()
         μ = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
-        println("time ergodic_distribution:",time()-t0) # ~6e-3s
+        t_ergodic_dist = time()-t0 # ~6e-3s
 
         t0 = time()
         dmodel = Dolark.discretize(hmodel, sol_agent) 
-        println("time discretize:",time()-t0) # ~1e-3s
+        t_discretize = time()-t0 # ~1e-3s
 
         x = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
     
         # computation of A = K_demand - K_offer
         t0 = time()
         A = Dolark.𝒜(dmodel, μ, x, y, z; diff=false)
-        println("time A:",time()-t0) # ~3e-4s
+        t_A = time()-t0 # ~3e-4s
         return A, sol_agent.dr
     end
 
     t0 = time()
     μ = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
-    println("time ergodic_distribution:",time()-t0)
+    t_ergodic_dist = time()-t0
 
     t0 = time()
     dmodel = Dolark.discretize(hmodel, sol_agent)
-    println("time discretize:",time()-t0)
+    t_discretize = time()-t0
 
     x = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
 
     t0 = time()
     μ, ∂G_∂μ, ∂G_∂x = dmodel.G(μ,x; diff=true) # here, μ is unchanged since it is already the ergodic distrib.
-    println("time G", time()-t0) # ~4e-2s
+    t_G = time()-t0 # ~4e-2s
 
     # computation of A = K_demand - K_offer and of its derivatives
     t0 = time()
     A, ∂A_∂μ, ∂A_∂x, ∂A_∂y, ∂A_∂z = Dolark.𝒜(dmodel, μ, x, y, z; diff=true)
-    println("time A:",time()-t0) # ~3e-4s
+    t_A = time()-t0 # ~3e-4s
 
 
     t0 = time()
-    function dA_(dy)
+    function dA_(dy; log2 = log2, it = it)
         # computation of dp induced by dy
+        t0 = time()
         dp = r_p_y * dy
-        # println("time dp:",time()-t0) # 3e-4s
+        t_dp = time()-t0 # 3e-4s
+
         # computation of dx induced by dy
+        t0 = time()
         J = Dolo.df_A(dmodel.F, x, x; exo=(p,p))
         L = Dolo.df_B(dmodel.F, x, x; exo=(p,p))
         F_p1, F_p2 = Dolo.df_e(dmodel.F, x, x, p, p)
@@ -111,9 +113,10 @@ function Ξ(y::SVector{d,Float64}, hmodel; init=true, dr0 = nothing, z=SVector(0
                 break
             end
         end
-        # println("time dx:",time()-t0) # ~8e-2s
+        t_dx = time()-t0 # ~8e-2s
 
         # computation of dμ induced by dy. ∂G/∂p MUST BE ADDED AND THE CONVERGENCE MUST BE CHECKED !!!
+        t0 = time()
         count=0
         U = ∂G_∂x * dx
         dμ = ∂G_∂x * dx
@@ -125,50 +128,107 @@ function Ξ(y::SVector{d,Float64}, hmodel; init=true, dr0 = nothing, z=SVector(0
                 break
             end
         end
-        # println("time dμ:",time()-t0) # ~5e-3s
+        t_dμ = time()-t0 # ~5e-3s
+
         # computation of dA induced by dy
+        t0 = time()
         dA = convert(Matrix, ∂A_∂μ) * dμ + convert(Matrix,∂A_∂x) * dx + convert(Matrix,∂A_∂y) * dy 
-        # println("time dA:",time()-t0) # ~2e-3s
+        t_dA = time() - t0 # ~2e-3s
+
+        if log2 != nothing
+            Dolo.append!(log2; #verbose=verbose,
+            it=it,
+            t_dp= t_dp,
+            t_dx= t_dx,
+            t_dμ= t_dμ,
+            t_dA= t_dA)
+        end
+
         return(dA)
     end
-    print("time dA_:", time()-t0)
+
+    if log != nothing
+        Dolo.append!(log; 
+        it=it,
+        calib= t_calib,
+        ITI= t_ITI,
+        ergodic_dist= t_ergodic_dist,
+        discretize= t_discretize,
+        G= t_G,
+        A= t_A,
+        ∂A_∂y= t_∂A_∂y)
+    end
+
     return A, dA_, sol_agent.dr
 end
 
 
-function solve_agent_pb(hmodel; n_it=100, toll=1e-3, newton_adjustment_parameter = 0.2, krylov=false) 
+function solve_agent_pb(hmodel; n_it=100, toll=1e-3, newton_adjustment_parameter = 0.2, krylov=false, log_tot = false, log_∂A_∂y = false) 
 
     y0, z0 = hmodel.calibration[:aggregate, :exogenous]
     y = SVector(y0...)
     z = SVector(z0...)
     N_y = length(y)
 
+    if log_tot
+        log = Dolo.IterationLog(;
+            it=("It",Int),
+            calib= ("t_calib",Float64),
+            ITI= ("t_ITI", Float64),
+            ergodic_dist=("t_ergodic_dist", Float64),
+            discretize= ("t_discretize",Float64),
+            G= ("t_G", Float64),
+            A= ("t_A", Float64),
+            ∂A_∂y= ("t_newton", Float64)
+        )
+        Dolo.initialize(log; message="Solve agent's problem") 
+    else
+        log = nothing
+    end
+
+    if log_∂A_∂y
+        log2 = Dolo.IterationLog(;
+            it=("It",Int),
+            t_dp= ("t_dp",Float64),
+            t_dx= ("t_dx", Float64),
+            t_dμ=("t_dμ", Float64),
+            t_dA= ("t_dA",Float64)
+        )
+        Dolo.initialize(log2; message="Details of ∂A_∂y") 
+    else
+        log2 = nothing
+    end
+
     it=0
 
-    A, dA_, dr = Ξ(y, hmodel; z=z, diff=true)
+    A, dA_, dr = Ξ(y, hmodel; z=z, diff=true,  log = log, log2=log2)
+
 
     while it < n_it && maximum(abs.(A)) > toll
-        t0 = time()
-        ∂A_∂y = LinearMaps.LinearMap(dy -> dA_(dy), N_y, N_y)
-        println("time linearmap at it ",it,": ",time()-t0)
-
+        ∂A_∂y = LinearMaps.LinearMap(dy -> dA_(dy; log2 = log2, it = it), N_y, N_y)
         
         if krylov
             t0 = time()
             Δy = Krylov.gmres(∂A_∂y, A* newton_adjustment_parameter)
-            println(typeof(Δy))
             y = y - Δy[1]
-            println("time of newton at it ",it,": ",time()-t0)
+            t_∂A_∂y = time() - t0
         else
             t0 = time()
             ∂A_∂y = convert(Matrix, ∂A_∂y)
             y = y - ∂A_∂y \  A * newton_adjustment_parameter
-            println("time of newton at it ",it,": ",time()-t0)
+            t_∂A_∂y = time() - t0
         end
-
-        A, dA_, dr = Ξ(y, hmodel; init=false, dr0 = dr, z=z, diff=true)
-
         it += 1
+
+        A, dA_, dr = Ξ(y, hmodel; it=it, dr0 = dr, z=z, diff=true, log2 = log2, log = log, t_∂A_∂y = t_∂A_∂y)
+    
+    end
+
+    if log_tot
+        Dolo.finalize(log)
+    end
+    if log_∂A_∂y
+        Dolo.finalize(log2)
     end
 
     print("y=",y, " and it=",it)
@@ -176,7 +236,7 @@ end
 
 hmodel = Dolark.HModel("models/ayiagari.yaml")
 
-@time solve_agent_pb(hmodel; krylov = true) #0.6s
+@time solve_agent_pb(hmodel; krylov = false, log_tot = true, log_∂A_∂y = false) #0.55s
 
 
 
