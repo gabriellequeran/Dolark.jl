@@ -42,7 +42,7 @@ exogenous:
         μ: [r, w]
     e: !VAR1
         ρ: 0.95
-        Σ: [[0.06^2]]
+        Σ:  [[0.06^2]]
 
 options:
     discretization:
@@ -63,13 +63,13 @@ calibration:
     alpha: 0.36
     delta: 0.025
     N: 1.0
-    K: 50
+    K: 50.
     z: 0
     ρ: 0.95
     σ: 0.025
 
 exogenous: 
-    z: !VAR1
+    z: !VAR1 # Characterizes log(total factor productivity)
         ρ: 0.9
         Σ: [[ 0.02 ]]
 

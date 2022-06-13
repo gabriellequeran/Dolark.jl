@@ -6,7 +6,6 @@ using LinearMaps
 using LinearAlgebra
 using Statistics
 using Krylov
-using LinearMapsAA
 
 
 """
@@ -102,32 +101,12 @@ function Ξ(y::SVector{d,Float64}, hmodel; it=0, dr0 = nothing, z=SVector(0.), d
         Dolo.mult!(L, -1.0) # L : -L
         Dolo.prediv!(L, J) # L : -J\L 
         π = - J \ F_p * dp
-        count = 0
-        u = π
-        dx = π
-        for i=1:smaxit
-            count +=1
-            u = L*u
-            dx += u # supposed to be the infinite sum useful to compute an inverse
-            if norm(u)<tol_ν
-                break
-            end
-        end
+        dx = invert(L, π)
         t_dx = time()-t0 # ~8e-2s
 
         # computation of dμ induced by dy. ∂G/∂p MUST BE ADDED AND THE CONVERGENCE MUST BE CHECKED !!!
         t0 = time()
-        count=0
-        U = ∂G_∂x * dx
-        dμ = ∂G_∂x * dx
-        for j=1:smaxit
-            count +=1
-            U = ∂G_∂μ * U
-            dμ += U # supposed to be the infinite sum useful to compute an inverse
-            if norm(U)<tol_ν
-                break
-            end
-        end
+        dμ = invert(∂G_∂μ, ∂G_∂x * dx)
         t_dμ = time()-t0 # ~5e-3s
 
         # computation of dA induced by dy
@@ -161,6 +140,8 @@ function Ξ(y::SVector{d,Float64}, hmodel; it=0, dr0 = nothing, z=SVector(0.), d
 
     return A, dA_, sol_agent.dr
 end
+
+
 
 
 function solve_agent_pb(hmodel; n_it=100, toll=1e-3, newton_adjustment_parameter = 0.2, krylov=false, log_tot = false, log_∂A_∂y = false) 
@@ -234,9 +215,39 @@ function solve_agent_pb(hmodel; n_it=100, toll=1e-3, newton_adjustment_parameter
     print("y=",y, " and it=",it)
 end
 
+
+import Base.size
+function size(lt::Dolo.LinearThing)
+    return prod(Dolo.shape(lt))
+end
+
+
+function invert(L, r0; smaxit = 1000, tol_ν = 1e-10, krylov = true)
+    if krylov
+        u0 = Krylov.gmres(I-LinearMaps.LinearMap(z -> L*z,size(L)[1],size(L)[1]), r0)[1]
+    else
+        u0 = r0
+        for i=1:smaxit
+            r0 = L*r0
+            u0 += r0 # supposed to be the infinite sum useful to compute an inverse
+            if norm(r0)<tol_ν
+                break
+            end
+        end
+    end
+    return u0
+end
+
 hmodel = Dolark.HModel("models/ayiagari.yaml")
 
-@time solve_agent_pb(hmodel; krylov = false, log_tot = true, log_∂A_∂y = false) #0.55s
+@time solve_agent_pb(hmodel; krylov = true, log_tot = false, log_∂A_∂y = false) #0.36s
+
+
+
+
+
+
+
 
 
 
