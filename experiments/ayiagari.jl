@@ -33,7 +33,7 @@ function Ξ(y::SVector{d,Float64}, hmodel; it=0, dr0 = nothing, z=SVector(0.), d
     parm = hmodel.calibration[:parameters]
     p, r_p_y = Dolark.projection(hmodel, Val{(0,1)}, y, z, parm)
     r, w = p
-    p = SVector{2,Float64}(p...)
+    p = SVector{length(p),Float64}(p...)
 
     t0 = time()
     Dolo.set_calibration!(hmodel.agent; r=r, w=w) # update the model to account for the correct values of p
