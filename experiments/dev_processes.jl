@@ -56,6 +56,15 @@ Dolo.discretize(Mixture(Bernouilli(0.1), tuple(Dolo.MvNormal(0.4), Dolo.MvNormal
 
 
 
+## ConstantProcess
+
+function Dolo.discretize(constantprocess::Dolo.ConstantProcess)
+    μ = constantprocess.μ
+    return Dolo.DiscretizedIIDProcess(reshape(μ,length(μ),1),[1. for i=1:length(μ)])
+end
+
+discretize(Dolo.ConstantProcess([0.4,0.3]))
+
 ## UNormal extended to enable the option of μ ≠ 0
 import Dolo.UNormal
 Dolo.UNormal(;μ=0.0, σ=0.0) = Dolo.MvNormal([μ], reshape([σ^2], 1, 1))
@@ -87,6 +96,8 @@ ProductProcess_(Dolo.ConstantProcess(), Dolo.UNormal(), Mixture())
 ProductProcess_(p) = p
 
 function Dolo.discretize(pp::ProductProcess_{Dolo.ConstantProcess, <:Dolo.IIDExogenous, Mixture}; opt=Dict())
+        print(pp.process_1)
+        print(pp.process_3)
         diidp2 = Dolo.discretize(pp.process_2)
         inodes2 = diidp2.integration_nodes
         diidp3 = Dolo.discretize(pp.process_3)
