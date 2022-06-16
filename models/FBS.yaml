@@ -91,7 +91,7 @@ distribution:
 
 options:
     grid: !Cartesian
-        n: [300]
+        orders: [300]
 
 
 

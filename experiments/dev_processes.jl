@@ -77,14 +77,6 @@ Dolo.UNormal(;μ=0.2, σ=0.)
 
 ## ProductProcess
 
-
-
-# mutable struct ProductProcess_{P1<:Dolo.AbstractProcess,P2<:Dolo.AbstractProcess} <: Dolo.AbstractProcess
-#     process_1::P1
-#     process_2::P2
-#     process_3::Union{<:Dolo.AbstractProcess, Nothing}
-# end
-
 mutable struct ProductProcess_{P1<:Dolo.AbstractProcess,P2<:Dolo.AbstractProcess, P3<:Dolo.AbstractProcess} <: Dolo.AbstractProcess
     process_1::P1
     process_2::P2
@@ -111,6 +103,9 @@ function Dolo.discretize(pp::ProductProcess_{Dolo.ConstantProcess, <:Dolo.IIDExo
         return Dolo.DiscretizedIIDProcess(diidp2.grid, iit, weights)
 end
 
+Dolo.ConstantProcess([0.2])
+Dolo.UNormal(;μ=0.5, σ=0.0004)
+Mixture(Bernouilli(),tuple(Dolo.UNormal(;μ=0.5, σ=0.0004), Dolo.UNormal(;μ=0.6, σ=0.0003)))
 pp0 = ProductProcess_(Dolo.ConstantProcess([0.2]), Dolo.UNormal(;μ=0.5, σ=0.0004), Mixture(Bernouilli(),tuple(Dolo.UNormal(;μ=0.5, σ=0.0004), Dolo.UNormal(;μ=0.6, σ=0.0003))))
 Dolo.discretize(pp0)
 
@@ -172,39 +167,3 @@ function Dolo.get_exogenous(data, exosyms, fcalib)
         return ProductProcess_(processes...)
     end
 end
-
-
-
-
-
-
-
-
-
-
-# # import Dolo.MarkovProduct
-# # function MarkovProduct(mc1::DiscreteMarkovProcess, mc2::DiscreteMarkovProcess)
-# #     Q = gridmake(mc1.values, mc2.values)
-# #     P = fkron(mc1.transitions, mc2.transitions)
-# #     return DiscreteMarkovProcess(P, Q)
-# # end
-
-# function Dolo.discretize(::Type{Dolo.DiscreteMarkovProcess}, pp::ProductProcess_; opt1=Dict(), opt2=Dict(), opt3=Dict())
-#     p1 = Dolo.discretize(DiscreteMarkovProcess, pp.process_1; opt1...)
-#     p2 = Dolo.discretize(DiscreteMarkovProcess, pp.process_2; opt2...)
-#     p3 = Dolo.discretize(DiscreteMarkovProcess, pp.process_3; opt3...)
-#     return Dolo.MarkovProduct(p1, p2, p3)
-# end
-
-
-# function Dolo.discretize(::Type{Dolo.GDP}, pp::ProductProcess_; opt1=Dict(), opt2=Dict(), opt3 = Dict())
-#     p1 = Dolo.discretize(GDP, pp.process_1; opt1...)
-#     p2 = Dolo.discretize(GDP, pp.process_2; opt2...)
-#     p3 = discretize(GDP, pp.process_3; opt3...)
-#     return Dolo.Product(p1,p2,p3)
-# end
-
-
-# function Dolo.discretize(pp::ProductProcess_; kwargs...)
-#     return Dolo.discretize(DiscreteMarkovProcess, pp; kwargs...)
-# end
