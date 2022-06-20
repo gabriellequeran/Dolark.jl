@@ -9,11 +9,11 @@ symbols:
 equations:
 
     transition: |
-        m[t] = ((D+r[t])/Đ)*(m[t-1]-c[t-1])*(1/exp(1+ψ[t])) + ξ[t]
+        m[t] = ((D+r[t])/Đ)*(m[t-1]-c[t-1])*(1/exp(ψ[t])) + ξ[t]
     #   m[t] = ((D+r[t])/Đ)*(m[t-1]-c[t-1])*(1/ψ[t]) + ξ[t]
 
     arbitrage: |
-        ( β*(c[t+1]/c[t])^(-ρ) )*((exp(ψ[t+1]+1))^(-ρ))*(D+r[t+1])/Đ - 1 ⟂ 0.0<=c[t]<=m[t]
+        ( β*(c[t+1]/c[t])^(-ρ) )*((exp(ψ[t+1]))^(-ρ))*(D+r[t+1])/Đ - 1 ⟂ 0.0<=c[t]<=m[t]
       # ( β*(c[t+1]/c[t])^(-ρ) )*((ψ[t+1])^(-ρ))*(D+r[t+1])/Đ - 1 ⟂ 0.0<=c[t]<=m[t]
 
 calibration:
@@ -65,7 +65,7 @@ exogenous:
       μ: [wbar, rbar, ʊbar]
 
     ψ: !UNormal
-      # μ: 1
+      μ: 1
       σ: 0.00004
 
     ξ:  !Mixture
