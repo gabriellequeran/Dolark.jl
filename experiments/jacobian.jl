@@ -71,8 +71,9 @@ function eval_block(the_matrix, line, column, block_height, block_width)
     return the_matrix[(1+(line-1)*block_height):(line*block_height),(1+(column-1)*block_width):column*block_width]
 end
 
+#The description of the 8 following functions can be found in impulse_responses.ipynb.
 
-function create_dX(n,r_p)
+function create_dX(n,r_p, J, L, F_p1, F_p2; T=T)
     dX = Vector{Matrix{Float64}}()
     dX_i = reduce(hcat,(-[L*((J\F_p1)*(r_p*E_(k, n))) - (J\F_p2)*(r_p*E_(k, n)) for k in 1:n]))
     push!(dX,dX_i)
@@ -83,7 +84,7 @@ function create_dX(n,r_p)
     return dX
 end
 
-function create_dm(n, r_p)
+function create_dm(n, r_p, ∂G_∂x, ∂G_∂μ, F_p1; T=T)
     dm = Vector{Matrix{Float64}}()
     dm_i = reduce(hcat,([∂G_∂x*(F_p1*(r_p*E_(k, n))) for k in 1:n]))
     push!(dm,dm_i)
@@ -94,7 +95,7 @@ function create_dm(n, r_p)
     return dm
 end
 
-function fill_second_line_of_dM!(dM, n, dX; ∂G_∂x = ∂G_∂x, T=T)
+function fill_second_line_of_dM!(dM, n, dX; ∂G_∂x = ∂G_∂x, T=T, n_x=n_x)
     for j in 2:(T+1)
         new_matrix = reduce(hcat,[∂G_∂x*dX[j-1][:,k] for k in 1:n])
         fill_a_matrix_by_blocks!(dM, 2, j, n_x, n, new_matrix)
@@ -102,7 +103,7 @@ function fill_second_line_of_dM!(dM, n, dX; ∂G_∂x = ∂G_∂x, T=T)
 end
 
 
-function fill_strictly_under_the_diagonal_of_dM!(dM, n, dX; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T)
+function fill_strictly_under_the_diagonal_of_dM!(dM, n, dX; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
     for j in 2:T
         above = dM[(1+(j-1)*n_x):(j*n_x),(1+(j-1)*n):j*n]
         for i in j+1:(T+1)
@@ -113,7 +114,7 @@ function fill_strictly_under_the_diagonal_of_dM!(dM, n, dX; ∂G_∂μ= ∂G_∂
 end
 
 
-function fill_the_rest_above_the_diagonal_of_dM!(dM, n; ∂G_∂μ= ∂G_∂μ, T=T)
+function fill_the_rest_above_the_diagonal_of_dM!(dM, n; ∂G_∂μ= ∂G_∂μ, T=T, n_x=n_x)
     for i in 3:(T+1)
         for j in 3:(T+1)
             block_of_second_line = eval_block(dM, 2, j, n_x, n)
@@ -124,15 +125,15 @@ function fill_the_rest_above_the_diagonal_of_dM!(dM, n; ∂G_∂μ= ∂G_∂μ, 
 end
 
 
-function fill_dM!(dM, n, dX; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T)
-    fill_second_line_of_dM!(dM, n, dX; ∂G_∂x = ∂G_∂x, T=T)
-    fill_the_rest_above_the_diagonal_of_dM!(dM, n; ∂G_∂μ= ∂G_∂μ, T=T)
-    fill_strictly_under_the_diagonal_of_dM!(dM, n, dX; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T)
+function fill_dM!(dM, n, dX; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
+    fill_second_line_of_dM!(dM, n, dX; ∂G_∂x = ∂G_∂x, T=T, n_x=n_x)
+    fill_the_rest_above_the_diagonal_of_dM!(dM, n; ∂G_∂μ= ∂G_∂μ, T=T, n_x=n_x)
+    fill_strictly_under_the_diagonal_of_dM!(dM, n, dX; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
 end
 
 
 # filling the jacobian matrices
-function fill_∂H_∂YorZ!(∂H_∂YorZ, n, dX, ∂A_∂yorz, r_p, dM, dm)
+function fill_∂H_∂YorZ!(∂H_∂YorZ, n, dX, ∂A_∂yorz, r_p, dM, dm; T=T, F_p1=F_p1, ∂A_∂x= ∂A_∂x, ∂A_∂μ= ∂A_∂μ, n_x=n_x, n_y=n_y)
     for i in 1:(T+1)
         for j in 1:(T+1)
             if i==j
@@ -151,7 +152,6 @@ end
 
 
 #inputs
-T=150
 yss = SVector(52.693273233617525)
 z = SVector(0.)
 
@@ -179,35 +179,45 @@ function compute_jacobians(hmodel, yss, z; T=150)
     n_z = length(z)
 
     #creating vectors dX_Y (or dX_Z) of matrices homogeneous with some ∂x_∂y (or ∂x_∂z) that help to compute A_x dx and A_μ dμ
-    dX_Y = create_dX(n_y, r_p_y)
-    dX_Z = create_dX(n_z, r_p_z)
+    dX_Y = create_dX(n_y, r_p_y,  J, L, F_p1, F_p2; T=T)
+    dX_Z = create_dX(n_z, r_p_z,  J, L, F_p1, F_p2; T=T)
 
     #creating vectors dm_Y (or dm_Z) which contain matrices (for different t) extracted from the total ∂μ_∂y (or ∂μ_∂z)
-    dm_Y = create_dm(n_y, r_p_y)
-    dm_Z = create_dm(n_z, r_p_z)
+    dm_Y = create_dm(n_y, r_p_y, ∂G_∂x, ∂G_∂μ, F_p1; T=T)
+    dm_Z = create_dm(n_z, r_p_z, ∂G_∂x, ∂G_∂μ, F_p1; T=T)
 
     #creating matrices containing the rest of ∂μ_∂y or ∂μ_∂z
     dM_Y = zeros((T+1) * n_x, (T+1) * n_y)
-    fill_dM!(dM_Y, n_y, dX_Y)
+    fill_dM!(dM_Y, n_y, dX_Y; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
 
     dM_Z = zeros((T+1) * n_x, (T+1) * n_z)
-    fill_dM!(dM_Z, n_z, dX_Z)
+    fill_dM!(dM_Z, n_z, dX_Z; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
 
     #computing the jacobians
     ∂H_∂Y = zeros((T+1) * n_y, (T+1) * n_y)
-    fill_∂H_∂YorZ!(∂H_∂Y, n_y, dX_Y, ∂A_∂y, r_p_y, dM_Y, dm_Y)
+    fill_∂H_∂YorZ!(∂H_∂Y, n_y, dX_Y, ∂A_∂y, r_p_y, dM_Y, dm_Y; T=T, F_p1=F_p1, ∂A_∂x= ∂A_∂x, ∂A_∂μ= ∂A_∂μ, n_x=n_x, n_y=n_y)
 
     ∂H_∂Z = zeros((T+1) * n_y, (T+1) * n_z)
-    fill_∂H_∂YorZ!(∂H_∂Z, n_z, dX_Z, ∂A_∂z, r_p_z, dM_Z, dm_Z)
+    fill_∂H_∂YorZ!(∂H_∂Z, n_z, dX_Z, ∂A_∂z, r_p_z, dM_Z, dm_Z;T=T, F_p1=F_p1, ∂A_∂x= ∂A_∂x, ∂A_∂μ= ∂A_∂μ, n_x=n_x, n_y=n_y)
 
     return ∂H_∂Y, ∂H_∂Z
 end
 
 
-@time ∂H_∂Y, ∂H_∂Z = compute_jacobians(hmodel, yss, z; T=150) #22s the second time
+@time ∂H_∂Y, ∂H_∂Z = compute_jacobians(hmodel, yss, z; T=299) #22s the second time
 
 ∂H_∂Y
 
 ∂H_∂Z
+
+# Practical case of impulse responses :
+
+dZ = [0. for k in 1:300]
+dZ[1] = 1e-1
+
+dY = -∂H_∂Y \ ∂H_∂Z * dZ
+
+using Plots
+plot(dY)
 
 
