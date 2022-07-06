@@ -57,7 +57,7 @@ function fill_a_matrix_by_blocks!(the_matrix, line, column, block_height, block_
 end
 
 """
-Find a block in a matrix
+Finds a block in a matrix
 # Arguments
 * `the_matrix::Matrix{Float64}`: the matrix in which the block will be found 
 * `line::Int64`: the line of the block (from the_matrix) to be extracted
@@ -75,7 +75,7 @@ end
 
 function create_dX(n,r_p, J, L, F_p1, F_p2; T=T)
     dX = Vector{Matrix{Float64}}()
-    dX_i = reduce(hcat,(-[L*((J\F_p1)*(r_p*E_(k, n))) - (J\F_p2)*(r_p*E_(k, n)) for k in 1:n]))
+    dX_i = reduce(hcat,(-[L*((J\F_p1)*(r_p*E_(k, n))) + (J\F_p2)*(r_p*E_(k, n)) for k in 1:n]))
     push!(dX,dX_i)
     for t=1:(T-1)
         dX_i = reduce(hcat,([L*dX_i[:,k] for k in 1:n]))
@@ -103,7 +103,7 @@ function fill_second_line_of_dM!(dM, n, dX; ∂G_∂x = ∂G_∂x, T=T, n_x=n_x)
 end
 
 
-function fill_strictly_under_the_diagonal_of_dM!(dM, n, dX; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
+function fill_strictly_under_the_diagonal_of_dM!(dM, n; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
     for j in 2:T
         above = dM[(1+(j-1)*n_x):(j*n_x),(1+(j-1)*n):j*n]
         for i in j+1:(T+1)
@@ -126,9 +126,16 @@ end
 
 
 function fill_dM!(dM, n, dX; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
+    t0 = time()
     fill_second_line_of_dM!(dM, n, dX; ∂G_∂x = ∂G_∂x, T=T, n_x=n_x)
+    t1 = time()
+    println("time to fill second line of dM: ", t1-t0)
     fill_the_rest_above_the_diagonal_of_dM!(dM, n; ∂G_∂μ= ∂G_∂μ, T=T, n_x=n_x)
-    fill_strictly_under_the_diagonal_of_dM!(dM, n, dX; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
+    t2 = time()
+    println("time to fill above the diagonal of dM: ", t2-t1)
+    fill_strictly_under_the_diagonal_of_dM!(dM, n; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
+    t3 = time()
+    println("time to fill under the diagonal of dM: ", t3-t2)
 end
 
 
@@ -155,9 +162,10 @@ end
 yss = SVector(52.693273233617525)
 z = SVector(0.)
 
-function compute_jacobians(hmodel, yss, z; T=150)
+function compute_jacobians(hmodel, yss, z; T=300)
 
     #parms of interest
+    t0 = time()
     parm = hmodel.calibration[:parameters]
     p, r_p_y, r_p_z = Dolark.projection(hmodel, Val{(0,1,2)}, yss, z, parm)
     r,w = p
@@ -165,7 +173,7 @@ function compute_jacobians(hmodel, yss, z; T=150)
     Dolo.set_calibration!(hmodel.agent; r=r, w=w)
     sol_agent = Dolo.improved_time_iteration(hmodel.agent; verbose=false)
     dmodel = Dolark.discretize(hmodel, sol_agent) 
-    μss = μ = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
+    μss = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
     xss = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
     J = Dolo.df_A(dmodel.F, xss, xss; exo=(p,p))
     L = Dolo.df_B(dmodel.F, xss, xss; exo=(p,p))
@@ -177,47 +185,107 @@ function compute_jacobians(hmodel, yss, z; T=150)
     n_y = length(yss)
     n_x = length(xss.data)
     n_z = length(z)
+    t1 = time()
+    println("time to find the parms of interest: ", t1-t0)
 
     #creating vectors dX_Y (or dX_Z) of matrices homogeneous with some ∂x_∂y (or ∂x_∂z) that help to compute A_x dx and A_μ dμ
     dX_Y = create_dX(n_y, r_p_y,  J, L, F_p1, F_p2; T=T)
     dX_Z = create_dX(n_z, r_p_z,  J, L, F_p1, F_p2; T=T)
+    t2 = time()
+    println("time to find dX: ", t2-t1)
 
     #creating vectors dm_Y (or dm_Z) which contain matrices (for different t) extracted from the total ∂μ_∂y (or ∂μ_∂z)
     dm_Y = create_dm(n_y, r_p_y, ∂G_∂x, ∂G_∂μ, F_p1; T=T)
     dm_Z = create_dm(n_z, r_p_z, ∂G_∂x, ∂G_∂μ, F_p1; T=T)
+    t3 = time()
+    println("time to find dm: ", t3-t2)
 
     #creating matrices containing the rest of ∂μ_∂y or ∂μ_∂z
     dM_Y = zeros((T+1) * n_x, (T+1) * n_y)
     fill_dM!(dM_Y, n_y, dX_Y; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
-
     dM_Z = zeros((T+1) * n_x, (T+1) * n_z)
     fill_dM!(dM_Z, n_z, dX_Z; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
+    t4 = time()
+    println("time to find dM: ", t4-t3)
 
     #computing the jacobians
     ∂H_∂Y = zeros((T+1) * n_y, (T+1) * n_y)
     fill_∂H_∂YorZ!(∂H_∂Y, n_y, dX_Y, ∂A_∂y, r_p_y, dM_Y, dm_Y; T=T, F_p1=F_p1, ∂A_∂x= ∂A_∂x, ∂A_∂μ= ∂A_∂μ, n_x=n_x, n_y=n_y)
-
     ∂H_∂Z = zeros((T+1) * n_y, (T+1) * n_z)
     fill_∂H_∂YorZ!(∂H_∂Z, n_z, dX_Z, ∂A_∂z, r_p_z, dM_Z, dm_Z;T=T, F_p1=F_p1, ∂A_∂x= ∂A_∂x, ∂A_∂μ= ∂A_∂μ, n_x=n_x, n_y=n_y)
+    t5 = time()
+    println("time to fill ∂H_∂?: ", t5-t4)
 
     return ∂H_∂Y, ∂H_∂Z
 end
 
 
-@time ∂H_∂Y, ∂H_∂Z = compute_jacobians(hmodel, yss, z; T=299) #22s the second time
+∂H_∂Y, ∂H_∂Z = compute_jacobians(hmodel, yss, z; T=299) # around 3 minutes. The calculation of dM is by far the most costful. 
 
 ∂H_∂Y
 
 ∂H_∂Z
 
 # Practical case of impulse responses :
-
+using Plots
 dZ = [0. for k in 1:300]
-dZ[1] = 1e-1
+dZ[1] = 1e-5
 
 dY = -∂H_∂Y \ ∂H_∂Z * dZ
-
-using Plots
 plot(dY)
+
+
+
+
+
+
+
+# #parms of interest
+# parm = hmodel.calibration[:parameters]
+# p, r_p_y, r_p_z = Dolark.projection(hmodel, Val{(0,1,2)}, yss, z, parm)
+# r,w = p
+# p = SVector{length(p),Float64}(p...)
+# Dolo.set_calibration!(hmodel.agent; r=r, w=w)
+# sol_agent = Dolo.improved_time_iteration(hmodel.agent; verbose=false)
+# dmodel = Dolark.discretize(hmodel, sol_agent) 
+# μss = Dolo.ergodic_distribution(hmodel.agent, sol_agent)
+# xss = Dolo.MSM([sol_agent.dr(i, dmodel.F.s0) for i=1:length(dmodel.F.grid.exo)])
+# J = Dolo.df_A(dmodel.F, xss, xss; exo=(p,p))
+# L = Dolo.df_B(dmodel.F, xss, xss; exo=(p,p))
+# F_p1, F_p2 = Dolo.df_e(dmodel.F, xss, xss, p, p)
+# μ, ∂G_∂μ, ∂G_∂x = dmodel.G(μss,xss; diff=true)
+# A, ∂A_∂μ, ∂A_∂x, ∂A_∂y, ∂A_∂z = Dolark.𝒜(dmodel, μss, xss, yss, z; diff=true)
+# Dolo.mult!(L,-1)
+# Dolo.prediv!(L,J)
+# n_y = length(yss)
+# n_x = length(xss.data)
+# n_z = length(z)
+
+# function compute_jacobians(J, L, F_p1, F_p2, n_x, n_y, n_z, r_p_y, r_p_z, ∂A_∂x, ∂A_∂y, ∂A_∂z, ∂A_∂μ, ∂G_∂x, ∂G_∂μ; T=300)
+
+#     #creating vectors dX_Y (or dX_Z) of matrices homogeneous with some ∂x_∂y (or ∂x_∂z) that help to compute A_x dx and A_μ dμ
+#     dX_Y = create_dX(n_y, r_p_y,  J, L, F_p1, F_p2; T=T)
+#     dX_Z = create_dX(n_z, r_p_z,  J, L, F_p1, F_p2; T=T)
+
+#     #creating vectors dm_Y (or dm_Z) which contain matrices (for different t) extracted from the total ∂μ_∂y (or ∂μ_∂z)
+#     dm_Y = create_dm(n_y, r_p_y, ∂G_∂x, ∂G_∂μ, F_p1; T=T)
+#     dm_Z = create_dm(n_z, r_p_z, ∂G_∂x, ∂G_∂μ, F_p1; T=T)
+
+#     #creating matrices containing the rest of ∂μ_∂y or ∂μ_∂z
+#     dM_Y = zeros((T+1) * n_x, (T+1) * n_y)
+#     fill_dM!(dM_Y, n_y, dX_Y; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
+
+#     dM_Z = zeros((T+1) * n_x, (T+1) * n_z)
+#     fill_dM!(dM_Z, n_z, dX_Z; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
+
+#     #computing the jacobians
+#     ∂H_∂Y = zeros((T+1) * n_y, (T+1) * n_y)
+#     fill_∂H_∂YorZ!(∂H_∂Y, n_y, dX_Y, ∂A_∂y, r_p_y, dM_Y, dm_Y; T=T, F_p1=F_p1, ∂A_∂x= ∂A_∂x, ∂A_∂μ= ∂A_∂μ, n_x=n_x, n_y=n_y)
+
+#     ∂H_∂Z = zeros((T+1) * n_y, (T+1) * n_z)
+#     fill_∂H_∂YorZ!(∂H_∂Z, n_z, dX_Z, ∂A_∂z, r_p_z, dM_Z, dm_Z;T=T, F_p1=F_p1, ∂A_∂x= ∂A_∂x, ∂A_∂μ= ∂A_∂μ, n_x=n_x, n_y=n_y)
+
+#     return ∂H_∂Y, ∂H_∂Z
+# end
 
 
