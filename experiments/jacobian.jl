@@ -115,15 +115,22 @@ end
 
 
 function fill_the_rest_above_the_diagonal_of_dM!(dM, n; ∂G_∂μ= ∂G_∂μ, T=T, n_x=n_x)
-    for i in 3:(T+1)
-        for j in 3:(T+1)
-            block_of_second_line = eval_block(dM, 2, j, n_x, n)
-            next_matrix = reduce(hcat,[LinearMaps_power(∂G_∂μ, i-2 , block_of_second_line[:,k]) for k in 1:n]) + eval_block(dM, i-1, j-1, n_x, n)
+    # for i in 3:(T+1) ## actually, it is far too slow 
+    #     for j in 3:(T+1)
+    #         block_of_second_line = eval_block(dM, 2, j, n_x, n)
+    #         next_matrix = reduce(hcat,[LinearMaps_power(∂G_∂μ, i-2 , block_of_second_line[:,k]) for k in 1:n]) + eval_block(dM, i-1, j-1, n_x, n)
+    #         fill_a_matrix_by_blocks!(dM, i, j, n_x, n, next_matrix)
+    #     end
+    # end
+    for j in 3:(T+1)
+        power_of_the_block_of_second_line = eval_block(dM, 2, j, n_x, n)
+        for i in 3:(T+1)
+            power_of_the_block_of_second_line = reduce(hcat,[∂G_∂μ * power_of_the_block_of_second_line[:,k] for k in 1:n])
+            next_matrix = power_of_the_block_of_second_line + eval_block(dM, i-1, j-1, n_x, n)
             fill_a_matrix_by_blocks!(dM, i, j, n_x, n, next_matrix)
         end
     end
 end
-
 
 function fill_dM!(dM, n, dX; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
     t0 = time()
@@ -220,7 +227,7 @@ function compute_jacobians(hmodel, yss, z; T=300)
 end
 
 
-∂H_∂Y, ∂H_∂Z = compute_jacobians(hmodel, yss, z; T=299) # around 3 minutes. The calculation of dM is by far the most costful. 
+∂H_∂Y, ∂H_∂Z = compute_jacobians(hmodel, yss, z; T=299) # around 12s.
 
 ∂H_∂Y
 
