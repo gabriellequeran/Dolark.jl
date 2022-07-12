@@ -300,3 +300,7 @@ dX_ = [[invert(L, π_[k][i])  for i in 1:T+1] for k in 1:5]
 dμ_ = [[invert(∂G_∂μ, ∂G_∂x * dX_[k][i]) for i in 1:T+1] for k in 1:5]
 
 
+## impulse responses of X, once aggregated, for shocks at various times (0, 25, 50, 75 and 100)
+DX_ = [[dX_[k][i]' *  dμ_[k][i] for i in 1:T+1] for k in 1:5]
+plot(DX_, title = "impulse response", ylabel="dX_agg", xlabel="t", label=["s=0" "s=25" "s=50" "s=75" "s=100"])
+
