@@ -265,42 +265,86 @@ plot(dw_, title = "impulse response", ylabel="dw", xlabel="t", label=["s=0" "s=2
 
 
 ## impulse responses of X for shocks at various times (0, 25, 50, 75 and 100)
-
-using LinearMaps
-using Krylov
-using LinearAlgebra
-import Base.size
-
-function Base.size(lt::Dolo.LinearThing)
-    return prod(Dolo.shape(lt))
-end
-
-function invert(L, r0; smaxit = 1000, tol_ν = 1e-10, krylov = true)
-    if krylov
-        u0 = Krylov.gmres(I-LinearMaps.LinearMap(z -> L*z,size(L)[1],size(L)[1]), r0)[1]
-    else
-        u0 = r0
-        for i=1:smaxit
-            r0 = L*r0
-            u0 += r0 # supposed to be the infinite sum useful to compute an inverse
-            if norm(r0)<tol_ν
-                break
-            end
-        end
+dX_Y = create_dX(n_y,r_p_y, J, L, F_p1, F_p2; T=299)
+dX_all_t_Y =  Vector{Vector{Float64}}()
+for t in 1:299 
+    dX_Y_t = zeros(T+1,1)
+    for j in 1:T+1-t
+        dX_Y_t += dX_Y[j] * dY[t+j]
     end
-    return u0
+    push!(dX_all_t_Y, dX_Y_t[:,1])
+end
+push!(dX_all_t_Y, [0 for k in 1:300])
+
+dX_Z = create_dX(n_z,r_p_z, J, L, F_p1, F_p2; T=299)
+dX_all_t_Z =  Vector{Vector{Float64}}()
+for t in 1:T
+    dX_Z_t = zeros(T+1,1)
+    for j in 1:T+1-t
+                 dX_Z_t += dX_Z[j] * dZ[t+j]
+    end
+    push!(dX_all_t_Z, dX_Z_t[:,1])
+end
+push!(dX_all_t_Z, [0 for k in 1:T+1])
+
+dX = [J\F_p1 * (r_p_y * [dY[t]]) for t in 1:T+1] + [J\F_p1 * (r_p_z * [dZ[t]]) for t in 1:T+1] + dX_all_t_Y + dX_all_t_Z
+
+ ## impulse responses of µ for shocks at various times (0, 25, 50, 75 and 100)
+
+dm_Y = create_dm(n_y, r_p_y, ∂G_∂x, ∂G_∂μ, F_p1, J; T=T)
+dm_Z = create_dm(n_z, r_p_z, ∂G_∂x, ∂G_∂μ, F_p1, J; T=T)
+dM_Y = zeros((T+1) * n_x, (T+1) * n_y) #size : (n_x*(T+1)) * (T+1) (ie. 2 dimensions)
+fill_dM!(dM_Y, n_y, dX_Y; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
+dM_Z = zeros((T+1) * n_x, (T+1) * n_z)
+fill_dM!(dM_Z, n_z, dX_Z; ∂G_∂μ= ∂G_∂μ, ∂G_∂x=∂G_∂x, T=T, n_x=n_x)
+dM_Y = [[dM_Y[1+(i-1)*n_x : i*n_x, k] for i in 1:T+1] for k in 1:T+1] # gives a vector of vector of vector. dM_Y[1] is the first column of the previous dM. dM_Y[1][2] gives an approximation of a part of the impact of a perturbation at t=0, of y, on µ_{t=1} (this is a vector of size n_x)
+
+dM_Z = [[dM_Z[1+(i-1)*n_x : i*n_x, k] for i in 1:T+1] for k in 1:T+1]
+
+
+dm_all_t_Y =  Vector{Vector{Float64}}()
+push!(dm_all_t_Y, [0 for k in 1:T+1])
+for t in 2:T+1
+    dm_Y_t = zeros(T+1,1)
+    for j in 1:t-1
+        dm_Y_t += dm_Y[j] * dY[t-j]
+    end
+    push!(dm_all_t_Y, dm_Y_t[:,1])
 end
 
-F_p = F_p1+F_p2
-π_ = [[- J \ F_p * dp_[k][i,:] for i in 1:T+1] for k in 1:5]
-dX_ = [[invert(L, π_[k][i])  for i in 1:T+1] for k in 1:5]
+dM_all_t_Y =  Vector{Vector{Float64}}()
+for t in 1:T+1
+    dM_Y_t = zeros(T+1,1)
+    for j in 1:T+1
+        dM_Y_t += dM_Y[j][t] * dY[j]
+    end
+    push!(dM_all_t_Y, dM_Y_t[:,1])
+end
 
-## impulse responses of µ for shocks at various times (0, 25, 50, 75 and 100)
+dm_all_t_Z =  Vector{Vector{Float64}}()
+push!(dm_all_t_Z, [0 for k in 1:T+1])
+for t in 2:T+1
+    dm_Z_t = zeros(T+1,1)
+    for j in 1:t-1
+        dm_Z_t += dm_Z[j] * dZ[t-j]
+    end
+    push!(dm_all_t_Z, dm_Z_t[:,1])
+end
 
-dμ_ = [[invert(∂G_∂μ, ∂G_∂x * dX_[k][i]) for i in 1:T+1] for k in 1:5]
+dM_all_t_Z =  Vector{Vector{Float64}}()
+for t in 1:T+1
+    dM_Z_t = zeros(T+1,1)
+    for j in 1:T+1
+        dM_Z_t += dM_Z[j][t] * dZ[j]
+    end
+    push!(dM_all_t_Z, dM_Z_t[:,1])
+end
+
+dμ = dm_all_t_Y + dm_all_t_Z + dM_all_t_Y + dM_all_t_Z
 
 
-## impulse responses of X, once aggregated, for shocks at various times (0, 25, 50, 75 and 100)
-DX_ = [[dX_[k][i]' *  dμ_[k][i] for i in 1:T+1] for k in 1:5]
-plot(DX_, title = "impulse response", ylabel="dX_agg", xlabel="t", label=["s=0" "s=25" "s=50" "s=75" "s=100"])
+## impulse resonses of X once aggregated
 
+dX_agg = [dX[t]'*dμ[t] for t in 1:T+1]
+
+plot(dX_agg, title = "impulse response", ylabel="dX aggregated", xlabel="t")
