@@ -84,9 +84,9 @@ function create_dX(n,r_p, J, L, F_p1, F_p2; T=T)
     return dX
 end
 
-function create_dm(n, r_p, ∂G_∂x, ∂G_∂μ, F_p1; T=T)
+function create_dm(n, r_p, ∂G_∂x, ∂G_∂μ, F_p1, J; T=T)
     dm = Vector{Matrix{Float64}}()
-    dm_i = reduce(hcat,([∂G_∂x*(F_p1*(r_p*E_(k, n))) for k in 1:n]))
+    dm_i = reduce(hcat,(-[∂G_∂x*(J\F_p1*(r_p*E_(k, n))) for k in 1:n]))
     push!(dm,dm_i)
     for t=1:(T-1)
         dm_i = reduce(hcat,([∂G_∂μ*dm_i[:,k] for k in 1:n]))
@@ -133,11 +133,11 @@ end
 
 
 # filling the jacobian matrices
-function fill_∂H_∂YorZ!(∂H_∂YorZ, n, dX, ∂A_∂yorz, r_p, dM, dm; T=T, F_p1=F_p1, ∂A_∂x= ∂A_∂x, ∂A_∂μ= ∂A_∂μ, n_x=n_x, n_y=n_y)
+function fill_∂H_∂YorZ!(∂H_∂YorZ, n, dX, ∂A_∂yorz, r_p, dM, dm; T=T, F_p1=F_p1, ∂A_∂x= ∂A_∂x, ∂A_∂μ= ∂A_∂μ, n_x=n_x, n_y=n_y, J=J)
     for i in 1:(T+1)
         for j in 1:(T+1)
             if i==j
-                new_matrix = reduce(hcat,[∂A_∂yorz*E_(k, n) + ∂A_∂x * (F_p1 * (r_p*E_(k, n))) + [∂A_∂μ*(eval_block(dM, i, j, n_x, n)[:,k])] for k in 1:n])
+                new_matrix = reduce(hcat,[∂A_∂yorz*E_(k, n) - ∂A_∂x * (J\F_p1 * (r_p*E_(k, n))) + [∂A_∂μ*(eval_block(dM, i, j, n_x, n)[:,k])] for k in 1:n])
                 fill_a_matrix_by_blocks!(∂H_∂YorZ, i, j, n_y, n, new_matrix)
             elseif j>i
                 new_matrix = reduce(hcat,[∂A_∂x * dX[j-i][:,k] + [∂A_∂μ*(eval_block(dM, i, j, n_x, n)[:,k])] for k in 1:n])
@@ -187,8 +187,8 @@ function compute_jacobians(n_x, n_y, n_z, r_p_y, r_p_z, J, L, F_p1, F_p2, ∂G_�
     println("time to find dX: ", t2-t1)
 
     #creating vectors dm_Y (or dm_Z) which contain matrices (for different t) extracted from the total ∂μ_∂y (or ∂μ_∂z)
-    dm_Y = create_dm(n_y, r_p_y, ∂G_∂x, ∂G_∂μ, F_p1; T=T)
-    dm_Z = create_dm(n_z, r_p_z, ∂G_∂x, ∂G_∂μ, F_p1; T=T)
+    dm_Y = create_dm(n_y, r_p_y, ∂G_∂x, ∂G_∂μ, F_p1, J; T=T)
+    dm_Z = create_dm(n_z, r_p_z, ∂G_∂x, ∂G_∂μ, F_p1, J; T=T)
     t3 = time()
     println("time to find dm: ", t3-t2)
 
@@ -202,9 +202,9 @@ function compute_jacobians(n_x, n_y, n_z, r_p_y, r_p_z, J, L, F_p1, F_p2, ∂G_�
 
     #computing the jacobians
     ∂H_∂Y = zeros((T+1) * n_y, (T+1) * n_y)
-    fill_∂H_∂YorZ!(∂H_∂Y, n_y, dX_Y, ∂A_∂y, r_p_y, dM_Y, dm_Y; T=T, F_p1=F_p1, ∂A_∂x= ∂A_∂x, ∂A_∂μ= ∂A_∂μ, n_x=n_x, n_y=n_y)
+    fill_∂H_∂YorZ!(∂H_∂Y, n_y, dX_Y, ∂A_∂y, r_p_y, dM_Y, dm_Y; T=T, F_p1=F_p1, ∂A_∂x= ∂A_∂x, ∂A_∂μ= ∂A_∂μ, n_x=n_x, n_y=n_y, J=J)
     ∂H_∂Z = zeros((T+1) * n_y, (T+1) * n_z)
-    fill_∂H_∂YorZ!(∂H_∂Z, n_z, dX_Z, ∂A_∂z, r_p_z, dM_Z, dm_Z;T=T, F_p1=F_p1, ∂A_∂x= ∂A_∂x, ∂A_∂μ= ∂A_∂μ, n_x=n_x, n_y=n_y)
+    fill_∂H_∂YorZ!(∂H_∂Z, n_z, dX_Z, ∂A_∂z, r_p_z, dM_Z, dm_Z;T=T, F_p1=F_p1, ∂A_∂x= ∂A_∂x, ∂A_∂μ= ∂A_∂μ, n_x=n_x, n_y=n_y, J=J)
     t5 = time()
     println("time to fill ∂H_∂?: ", t5-t4)
 
